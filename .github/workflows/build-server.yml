@@ -1,0 +1,97 @@
+name: Build Server Components
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build all server components
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libglib2.0-dev \
+            libzip-dev \
+            default-libmysqlclient-dev \
+            unixodbc-dev \
+            libssl-dev
+
+      - name: Build all components
+        working-directory: "Server Lib/Linux Builds"
+        run: |
+          set -euo pipefail
+          # Build order matters: the GGSrvLib26-1 static library and the
+          # Smart Calculator / GG Auth 7.0 shared libraries must exist
+          # before the Game Server, which links / consumes them.
+          components=(
+            "ggsrvlib:GGSrvLib26-1 static library"
+            "smart:Smart Calculator shared library"
+            "ggauth70:GG Auth 7.0 shared library"
+            "as:Auth Server"
+            "ls:Login Server"
+            "ms:Message Server"
+            "rs:Rank Server"
+            "iff:IFF Manager"
+            "gs:Game Server"
+          )
+          for entry in "${components[@]}"; do
+            mk="${entry%%:*}"
+            desc="${entry#*:}"
+            echo "::group::Building ${desc} (Makefile-${mk}.mk)"
+            make -f "Makefile-${mk}.mk" -j"$(nproc)"
+            echo "::endgroup::"
+          done
+
+      - name: Verify built artifacts
+        working-directory: "Server Lib/Linux Builds"
+        run: |
+          set -euo pipefail
+          artifacts=(
+            "Auth Server/auth"
+            "Login Server/login"
+            "Message Server/msn"
+            "Rank Server/rank"
+            "Game Server/game"
+            "IFF Manager/iff"
+            "Game Server/SMARTCALCULATORLIB.so"
+            "Game Server/ggauth701.so"
+            "GGSrvLib26-1/GGSrvLib26-1.a"
+          )
+          fail=0
+          for a in "${artifacts[@]}"; do
+            if [ ! -e "$a" ]; then
+              echo "MISSING: $a"
+              fail=1
+              continue
+            fi
+            printf '%-40s ' "$a"
+            file "$a"
+          done
+          exit "$fail"
+
+      - name: Upload server binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: superss-server-binaries
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            Server Lib/Linux Builds/Auth Server/auth
+            Server Lib/Linux Builds/Login Server/login
+            Server Lib/Linux Builds/Message Server/msn
+            Server Lib/Linux Builds/Rank Server/rank
+            Server Lib/Linux Builds/Game Server/game
+            Server Lib/Linux Builds/IFF Manager/iff
+            Server Lib/Linux Builds/Game Server/SMARTCALCULATORLIB.so
+            Server Lib/Linux Builds/Game Server/ggauth701.so
+            Server Lib/Linux Builds/GGSrvLib26-1/GGSrvLib26-1.a
