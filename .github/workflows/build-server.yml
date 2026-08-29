@@ -108,6 +108,25 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
+      - name: Install MSVC v141 toolset
+        shell: pwsh
+        run: |
+          # The Visual Studio projects target the v141 (VS2017) toolset, whose
+          # STL still provides the non-standard std::_Pi used by the Windows
+          # sources. windows-2022 ships v143 only, so add v141 on demand.
+          $installer = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe"
+          $vs = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
+          $proc = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
+            "modify", "--installPath", "`"$vs`"",
+            "--add", "Microsoft.VisualStudio.Component.VC.v141.x86.x64",
+            "--quiet", "--norestart", "--nocache", "--wait"
+          )
+          Write-Host "vs_installer exit code: $($proc.ExitCode)"
+          # 0 = success, 3010 = success (reboot not required for build tools)
+          if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+            throw "Failed to install v141 toolset (exit $($proc.ExitCode))"
+          }
+
       - name: Restore vcpkg binary cache
         uses: actions/cache/restore@v4
         with:
