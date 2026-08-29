@@ -1,0 +1,4 @@
+{
+  "name": "Superss-Dev (PangYa server)",
+  "install": "bash .cursor/install.sh"
+}
