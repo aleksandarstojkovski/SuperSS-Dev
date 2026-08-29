@@ -1,0 +1,13 @@
+# Convenience wrapper around the containerized Linux build.
+#
+#   docker compose build             # compile all server components in a container
+#   docker compose run --rm server   # list the produced binaries
+#
+# Running the servers for real additionally requires a reachable MySQL
+# database (see the bk-squema-mysql.sql schema and each server.ini).
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: superss-dev-linux:latest
