@@ -197,29 +197,50 @@ jobs:
           Copy-Item "$zipDir/zip.h" "$zipDir/x64/zip.h" -Force
           Copy-Item "$zipDir/zipconf.h" "$zipDir/x64/zipconf.h" -Force
 
-          # glib: headers in include/glib-2.0, glibconfig.h in lib/glib-2.0/include.
-          $inc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include"
-          $lib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
-          "INCLUDE=$inc;$inc\glib-2.0;$lib\glib-2.0\include;$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "LIB=$lib;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-          # reader_ini.cpp uses GLib's GKeyFile; the projects don't list glib
-          # explicitly, so inject it through the linker's LINK env variable.
-          "LINK=glib-2.0.lib gobject-2.0.lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-          # The sources set "#pragma pack(1)" which leaks into the modern Windows
-          # SDK headers (they added a packing static_assert after the SDK this
-          # project originally targeted). WINDOWS_IGNORE_PACKING_MISMATCH is the
-          # SDK-sanctioned way to silence it. /MP builds source files in parallel.
-          "CL=/MP /DWINDOWS_IGNORE_PACKING_MISMATCH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # The projects carry no external include/lib settings (the original
+          # developer configured them machine-globally). Inject them for every
+          # project via a Directory.Build.props that MSBuild auto-imports:
+          #  * glib (used by reader_ini.cpp) include + lib + import libraries;
+          #  * the MySQL Connector include dir;
+          #  * WINDOWS_IGNORE_PACKING_MISMATCH to silence the modern Windows SDK
+          #    packing static_assert triggered by the sources' #pragma pack(1);
+          #  * MultiProcessorCompilation for faster builds.
+          $vc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+          $mysqlInc = "C:\Program Files\MySQL\MySQL Connector C 6.1\include"
+          $lines = @(
+            '<Project>',
+            '  <ItemDefinitionGroup>',
+            '    <ClCompile>',
+            "      <AdditionalIncludeDirectories>$vc\include;$vc\include\glib-2.0;$vc\lib\glib-2.0\include;$mysqlInc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>",
+            '      <PreprocessorDefinitions>WINDOWS_IGNORE_PACKING_MISMATCH;%(PreprocessorDefinitions)</PreprocessorDefinitions>',
+            '      <MultiProcessorCompilation>true</MultiProcessorCompilation>',
+            '    </ClCompile>',
+            '    <Link>',
+            "      <AdditionalLibraryDirectories>$vc\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>",
+            '      <AdditionalDependencies>glib-2.0.lib;gobject-2.0.lib;%(AdditionalDependencies)</AdditionalDependencies>',
+            '    </Link>',
+            '    <Lib>',
+            "      <AdditionalLibraryDirectories>$vc\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>",
+            '    </Lib>',
+            '  </ItemDefinitionGroup>',
+            '</Project>'
+          )
+          Set-Content -Path "Server Lib/Directory.Build.props" -Value $lines -Encoding utf8
+          Write-Host "Wrote Server Lib/Directory.Build.props"
+          Get-Content "Server Lib/Directory.Build.props"
 
       - name: Build all solutions
         shell: pwsh
         run: |
           # Build order: GGSrvLib26-1 (static lib) and the shared libs first,
           # then the servers; Game Server links GGSrvLib26-1.lib and comes last.
-          # Multi Client is a test client (not a server component) and, like the
-          # Linux build, is not built here.
+          # Excluded from this x64 build:
+          #  * Multi Client   - a test client (not a server component; also not
+          #                     built on Linux).
+          #  * GG Auth Server - x86-only solution (no x64 config); the x64
+          #                     GameGuard auth is provided by ggauth70-1.
+          # The projects' native v141 toolset is used (its STL still provides the
+          # non-standard std::_Pi the Windows sources reference).
           $solutions = @(
             "Server Lib/GGSrvLib26-1/GGSrvLib26-1.sln",
             "Server Lib/Smart Calculator lib/Smart Calculator Lib.sln",
@@ -229,7 +250,6 @@ jobs:
             "Server Lib/Message Server/Message Server.sln",
             "Server Lib/Rank Server/Rank Server.sln",
             "Server Lib/IFF Manager/IFF Manager.sln",
-            "Server Lib/GG Auth Server/GG Auth Server.sln",
             "Server Lib/Game Server/Game Server.sln"
           )
           $failed = @()
@@ -238,7 +258,7 @@ jobs:
             msbuild "$s" /m /nologo `
               /p:Configuration=Release `
               /p:Platform=x64 `
-              /p:PlatformToolset=v143 `
+              /p:PlatformToolset=v141 `
               /p:WindowsTargetPlatformVersion=10.0
             if ($LASTEXITCODE -ne 0) { $failed += $s }
             Write-Host "::endgroup::"
