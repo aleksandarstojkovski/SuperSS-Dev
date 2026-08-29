@@ -108,11 +108,30 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg_cache
+          key: vcpkg-glib-x64-windows-v1
+
+      - name: Configure vcpkg binary cache
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\vcpkg_cache" | Out-Null
+          "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}\vcpkg_cache,readwrite" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Install glib (vcpkg)
         shell: pwsh
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install glib:x64-windows
           if ($LASTEXITCODE -ne 0) { throw "vcpkg glib install failed" }
+
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg_cache
+          key: vcpkg-glib-x64-windows-v1
 
       - name: Install MySQL client (Connector/C)
         shell: pwsh
@@ -168,23 +187,39 @@ jobs:
           if (-not (Test-Path "$dest\lib\libmysql.lib")) { throw "libmysql.lib not found at $dest" }
           Write-Host "MySQL client ready at $dest"
 
-      - name: Configure compiler / linker search paths
+      - name: Prepare build environment
         shell: pwsh
         run: |
+          # The x64 Windows sources include libzip via "../ZIP/x64/zip.h";
+          # provision that layout from the headers bundled in the repo.
+          $zipDir = "Server Lib/Projeto IOCP/ZIP"
+          New-Item -ItemType Directory -Force -Path "$zipDir/x64" | Out-Null
+          Copy-Item "$zipDir/zip.h" "$zipDir/x64/zip.h" -Force
+          Copy-Item "$zipDir/zipconf.h" "$zipDir/x64/zipconf.h" -Force
+
+          # glib: headers in include/glib-2.0, glibconfig.h in lib/glib-2.0/include.
           $inc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include"
           $lib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
-          # glib.h lives in include/glib-2.0 and glibconfig.h in lib/glib-2.0/include
           "INCLUDE=$inc;$inc\glib-2.0;$lib\glib-2.0\include;$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "LIB=$lib;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          # reader_ini.cpp uses GLib's GKeyFile; the projects do not list glib
+
+          # reader_ini.cpp uses GLib's GKeyFile; the projects don't list glib
           # explicitly, so inject it through the linker's LINK env variable.
           "LINK=glib-2.0.lib gobject-2.0.lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # The sources set "#pragma pack(1)" which leaks into the modern Windows
+          # SDK headers (they added a packing static_assert after the SDK this
+          # project originally targeted). WINDOWS_IGNORE_PACKING_MISMATCH is the
+          # SDK-sanctioned way to silence it. /MP builds source files in parallel.
+          "CL=/MP /DWINDOWS_IGNORE_PACKING_MISMATCH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build all solutions
         shell: pwsh
         run: |
           # Build order: GGSrvLib26-1 (static lib) and the shared libs first,
           # then the servers; Game Server links GGSrvLib26-1.lib and comes last.
+          # Multi Client is a test client (not a server component) and, like the
+          # Linux build, is not built here.
           $solutions = @(
             "Server Lib/GGSrvLib26-1/GGSrvLib26-1.sln",
             "Server Lib/Smart Calculator lib/Smart Calculator Lib.sln",
@@ -195,7 +230,6 @@ jobs:
             "Server Lib/Rank Server/Rank Server.sln",
             "Server Lib/IFF Manager/IFF Manager.sln",
             "Server Lib/GG Auth Server/GG Auth Server.sln",
-            "Server Lib/Multi Client/Multi Client.sln",
             "Server Lib/Game Server/Game Server.sln"
           )
           $failed = @()
