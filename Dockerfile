@@ -79,8 +79,13 @@ RUN apt-get update \
         libmysqlclient21 \
         unixodbc \
         libssl3 \
+        gawk \
         tmux \
     && rm -rf /var/lib/apt/lists/*
+
+# Entrypoint that rewrites server.ini for the Docker network at startup.
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR "/opt/superss/Linux Builds"
 
