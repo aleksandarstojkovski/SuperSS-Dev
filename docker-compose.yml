@@ -4,16 +4,17 @@
 #   * login   - Login Server  (port 10303)
 #   * message - Message Server(port 30303)
 #   * rank    - Rank Server   (port 4774)
-#   * game    - Game Server   (port 20203)
+#   * game    - Game Server   (port 20203)  [opt-in: "game" profile]
 #
 # The servers are the same image (built from the Dockerfile); each runs a
 # different binary from its folder. entrypoint.sh rewrites server.ini so the
 # servers point at the "db" and "auth" services instead of the hard-coded
 # developer LAN addresses.
 #
-#   docker compose up --build
-#
-# Bring only the database up with:  docker compose up -d db
+#   docker compose up --build           # db + auth + login + message + rank
+#   docker compose up -d db             # only the database
+#   docker compose --profile game up game   # also start the Game Server
+#                                           # (needs seeded game-content data)
 
 x-server: &server
   image: superss-dev-linux:latest
@@ -110,8 +111,15 @@ services:
     ports:
       - "4774:4774"
 
+  # The Game Server needs seeded game-content data (courses, treasure-hunter
+  # points, items, ...) to finish initialization; on an empty schema it aborts
+  # startup (the standalone binary behaves the same way). It is therefore
+  # opt-in via the "game" profile so the default stack stays clean. It is fully
+  # wired (db + auth + port 20203); start it once the DB has game data with:
+  #   docker compose --profile game up game
   game:
     <<: *server
+    profiles: ["game"]
     working_dir: "/opt/superss/Linux Builds/Game Server"
     command: ["./game"]
     environment:
