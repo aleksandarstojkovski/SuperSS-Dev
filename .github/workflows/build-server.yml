@@ -116,16 +116,19 @@ jobs:
           # sources. windows-2022 ships v143 only, so add v141 on demand.
           $installer = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe"
           $vs = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
-          $proc = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
-            "modify", "--installPath", "`"$vs`"",
-            "--add", "Microsoft.VisualStudio.Component.VC.v141.x86.x64",
-            "--quiet", "--norestart", "--nocache", "--wait"
-          )
+          # Pass a single, properly quoted command line (the install path has spaces).
+          $argline = 'modify --installPath "{0}" --add Microsoft.VisualStudio.Component.VC.v141.x86.x64 --quiet --norestart --nocache --wait' -f $vs
+          $proc = Start-Process -FilePath $installer -ArgumentList $argline -Wait -PassThru
           Write-Host "vs_installer exit code: $($proc.ExitCode)"
           # 0 = success, 3010 = success (reboot not required for build tools)
           if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
             throw "Failed to install v141 toolset (exit $($proc.ExitCode))"
           }
+          # Confirm the v141 toolset is present.
+          $v141 = Get-ChildItem "$vs\VC\Tools\MSVC" -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like '14.16.*' }
+          if (-not $v141) { throw "v141 toolset not found under $vs\VC\Tools\MSVC after install" }
+          Write-Host "v141 toolset installed: $($v141.Name)"
 
       - name: Restore vcpkg binary cache
         uses: actions/cache/restore@v4
