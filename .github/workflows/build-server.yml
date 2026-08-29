@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build all server components
+  linux-build:
+    name: Linux build (make / g++)
     runs-on: ubuntu-24.04
 
     steps:
@@ -80,10 +80,10 @@ jobs:
           done
           exit "$fail"
 
-      - name: Upload server binaries
+      - name: Upload Linux server binaries
         uses: actions/upload-artifact@v4
         with:
-          name: superss-server-binaries
+          name: superss-server-binaries-linux
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -96,3 +96,97 @@ jobs:
             Server Lib/Linux Builds/Game Server/SMARTCALCULATORLIB.so
             Server Lib/Linux Builds/Game Server/ggauth701.so
             Server Lib/Linux Builds/GGSrvLib26-1/GGSrvLib26-1.a
+
+  windows-build:
+    name: Windows build (MSBuild / MSVC)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install glib (vcpkg)
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install glib:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg glib install failed" }
+
+      - name: Install MySQL Connector/C 6.1
+        shell: pwsh
+        run: |
+          # The Windows sources hard-code this path in
+          # Server Lib/Projeto IOCP/DATABASE/mysql_db.h
+          $url = "https://downloads.mysql.com/archives/get/p/19/file/mysql-connector-c-6.1.11-winx64.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "mysql-c.zip"
+          $out = Join-Path $env:RUNNER_TEMP "mysql-c"
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath $out -Force
+          $src = Get-ChildItem $out -Directory | Select-Object -First 1
+          $dest = "C:\Program Files\MySQL\MySQL Connector C 6.1"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -Path (Join-Path $src.FullName '*') -Destination $dest -Recurse -Force
+          if (-not (Test-Path "$dest\include\mysql.h")) { throw "mysql.h not found at $dest" }
+          if (-not (Test-Path "$dest\lib\libmysql.lib")) { throw "libmysql.lib not found at $dest" }
+          Write-Host "MySQL Connector/C 6.1 installed at $dest"
+
+      - name: Configure compiler / linker search paths
+        shell: pwsh
+        run: |
+          $inc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include"
+          $lib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib"
+          # glib.h lives in include/glib-2.0 and glibconfig.h in lib/glib-2.0/include
+          "INCLUDE=$inc;$inc\glib-2.0;$lib\glib-2.0\include;$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LIB=$lib;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # reader_ini.cpp uses GLib's GKeyFile; the projects do not list glib
+          # explicitly, so inject it through the linker's LINK env variable.
+          "LINK=glib-2.0.lib gobject-2.0.lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build all solutions
+        shell: pwsh
+        run: |
+          # Build order: GGSrvLib26-1 (static lib) and the shared libs first,
+          # then the servers; Game Server links GGSrvLib26-1.lib and comes last.
+          $solutions = @(
+            "Server Lib/GGSrvLib26-1/GGSrvLib26-1.sln",
+            "Server Lib/Smart Calculator lib/Smart Calculator Lib.sln",
+            "Server Lib/ggauth70-1/ggauth70-1.sln",
+            "Server Lib/Auth Server/Auth Server.sln",
+            "Server Lib/Login Server/Login Server.sln",
+            "Server Lib/Message Server/Message Server.sln",
+            "Server Lib/Rank Server/Rank Server.sln",
+            "Server Lib/IFF Manager/IFF Manager.sln",
+            "Server Lib/GG Auth Server/GG Auth Server.sln",
+            "Server Lib/Multi Client/Multi Client.sln",
+            "Server Lib/Game Server/Game Server.sln"
+          )
+          $failed = @()
+          foreach ($s in $solutions) {
+            Write-Host "::group::Building $s"
+            msbuild "$s" /m /nologo `
+              /p:Configuration=Release `
+              /p:Platform=x64 `
+              /p:PlatformToolset=v143 `
+              /p:WindowsTargetPlatformVersion=10.0
+            if ($LASTEXITCODE -ne 0) { $failed += $s }
+            Write-Host "::endgroup::"
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "The following solutions failed to build:"
+            $failed | ForEach-Object { Write-Host " - $_" }
+            exit 1
+          }
+          Write-Host "All solutions built successfully."
+
+      - name: Upload Windows server binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: superss-server-binaries-windows
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            Server Lib/**/x64/Release/*.exe
+            Server Lib/**/x64/Release/*.dll
+            Server Lib/**/x64/Release/*.lib
