@@ -114,23 +114,59 @@ jobs:
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install glib:x64-windows
           if ($LASTEXITCODE -ne 0) { throw "vcpkg glib install failed" }
 
-      - name: Install MySQL Connector/C 6.1
+      - name: Install MySQL client (Connector/C)
         shell: pwsh
         run: |
           # The Windows sources hard-code this path in
           # Server Lib/Projeto IOCP/DATABASE/mysql_db.h
-          $url = "https://downloads.mysql.com/archives/get/p/19/file/mysql-connector-c-6.1.11-winx64.zip"
+          $dest = "C:\Program Files\MySQL\MySQL Connector C 6.1"
           $zip = Join-Path $env:RUNNER_TEMP "mysql-c.zip"
           $out = Join-Path $env:RUNNER_TEMP "mysql-c"
-          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-          Expand-Archive -Path $zip -DestinationPath $out -Force
-          $src = Get-ChildItem $out -Directory | Select-Object -First 1
-          $dest = "C:\Program Files\MySQL\MySQL Connector C 6.1"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Copy-Item -Path (Join-Path $src.FullName '*') -Destination $dest -Recurse -Force
+          $url = "https://downloads.mysql.com/archives/get/p/19/file/mysql-connector-c-6.1.11-winx64.zip"
+
+          # Primary: download the official Connector/C 6.1 archive (retry, since
+          # the Oracle CDN occasionally serves a transient HTML error page).
+          $ok = $false
+          for ($i = 1; $i -le 5 -and -not $ok; $i++) {
+            try {
+              Write-Host "Attempt $i : downloading $url"
+              Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -MaximumRedirection 10 `
+                -Headers @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+              $fs = [System.IO.File]::OpenRead($zip); $b0 = $fs.ReadByte(); $b1 = $fs.ReadByte(); $fs.Close()
+              if ($b0 -eq 0x50 -and $b1 -eq 0x4B) { $ok = $true }   # "PK" => real ZIP
+              else { Write-Host "Downloaded file is not a ZIP (error page); retrying"; Start-Sleep -Seconds 15 }
+            } catch {
+              Write-Host "Download error: $($_.Exception.Message)"; Start-Sleep -Seconds 15
+            }
+          }
+
+          if ($ok) {
+            Expand-Archive -Path $zip -DestinationPath $out -Force
+            $src = Get-ChildItem $out -Directory | Select-Object -First 1
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            Copy-Item -Path (Join-Path $src.FullName '*') -Destination $dest -Recurse -Force
+          } else {
+            # Fallback: MariaDB Connector/C from vcpkg exposes the same libmysql
+            # C API (the Linux build already links a MySQL 8-era client fine).
+            Write-Host "Official archive unavailable; falling back to vcpkg libmariadb"
+            & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install libmariadb:x64-windows
+            if ($LASTEXITCODE -ne 0) { throw "vcpkg libmariadb install failed" }
+            $vc = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+            $mysqlH = Get-ChildItem "$vc\include" -Recurse -Filter mysql.h | Select-Object -First 1
+            if (-not $mysqlH) { throw "mysql.h not found in vcpkg libmariadb" }
+            $srcInc = $mysqlH.Directory.FullName
+            New-Item -ItemType Directory -Force -Path "$dest\include", "$dest\include\mysql", "$dest\lib" | Out-Null
+            Copy-Item "$srcInc\*" "$dest\include\" -Recurse -Force
+            Copy-Item "$srcInc\*" "$dest\include\mysql\" -Recurse -Force
+            $libCandidate = Get-ChildItem "$vc\lib" -Recurse -Include "libmariadb.lib", "mariadbclient.lib", "libmysql.lib" | Select-Object -First 1
+            if (-not $libCandidate) { throw "MariaDB import library not found" }
+            Copy-Item $libCandidate.FullName "$dest\lib\libmysql.lib" -Force
+            "INCLUDE=$dest\include;$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
           if (-not (Test-Path "$dest\include\mysql.h")) { throw "mysql.h not found at $dest" }
           if (-not (Test-Path "$dest\lib\libmysql.lib")) { throw "libmysql.lib not found at $dest" }
-          Write-Host "MySQL Connector/C 6.1 installed at $dest"
+          Write-Host "MySQL client ready at $dest"
 
       - name: Configure compiler / linker search paths
         shell: pwsh
