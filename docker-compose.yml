@@ -1,0 +1,139 @@
+# Full containerized Superss-Dev (PangYa) Linux stack:
+#   * db      - MySQL 8 preloaded with the pangya schema
+#   * auth    - Auth Server   (port 7777)
+#   * login   - Login Server  (port 10303)
+#   * message - Message Server(port 30303)
+#   * rank    - Rank Server   (port 4774)
+#   * game    - Game Server   (port 20203)  [opt-in: "game" profile]
+#
+# The servers are the same image (built from the Dockerfile); each runs a
+# different binary from its folder. entrypoint.sh rewrites server.ini so the
+# servers point at the "db" and "auth" services instead of the hard-coded
+# developer LAN addresses.
+#
+#   docker compose up --build           # db + auth + login + message + rank
+#   docker compose up -d db             # only the database
+#   docker compose --profile game up game   # also start the Game Server
+#                                           # (needs seeded game-content data)
+
+x-server: &server
+  image: superss-dev-linux:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+  entrypoint: ["/usr/local/bin/entrypoint.sh"]
+  environment: &server-env
+    BIND_IP: "0.0.0.0"
+    DB_HOST: "db"
+    DB_PORT: "3306"
+
+services:
+  db:
+    image: mysql:8.0
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    environment:
+      MYSQL_ROOT_PASSWORD: "root"
+      MYSQL_DATABASE: "pangya"
+      MYSQL_USER: "pangya"
+      MYSQL_PASSWORD: "pangya"
+    ports:
+      - "3306:3306"
+    volumes:
+      # Auto-loaded on first start (empty data dir): creates the pangya schema.
+      - "./bk-squema-mysql.sql:/docker-entrypoint-initdb.d/01-pangya-schema.sql:ro"
+      - "db-data:/var/lib/mysql"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  auth:
+    <<: *server
+    working_dir: "/opt/superss/Linux Builds/Auth Server"
+    command: ["./auth"]
+    ports:
+      - "7777:7777"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/7777' 2>/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+
+  login:
+    <<: *server
+    working_dir: "/opt/superss/Linux Builds/Login Server"
+    command: ["./login"]
+    environment:
+      <<: *server-env
+      AUTH_HOST: "auth"
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    ports:
+      - "10303:10303"
+
+  message:
+    <<: *server
+    working_dir: "/opt/superss/Linux Builds/Message Server"
+    command: ["./msn"]
+    environment:
+      <<: *server-env
+      AUTH_HOST: "auth"
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    ports:
+      - "30303:30303"
+
+  rank:
+    <<: *server
+    working_dir: "/opt/superss/Linux Builds/Rank Server"
+    command: ["./rank"]
+    environment:
+      <<: *server-env
+      AUTH_HOST: "auth"
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    ports:
+      - "4774:4774"
+
+  # The Game Server needs seeded game-content data (courses, treasure-hunter
+  # points, items, ...) to finish initialization; on an empty schema it aborts
+  # startup (the standalone binary behaves the same way). It is therefore
+  # opt-in via the "game" profile so the default stack stays clean. It is fully
+  # wired (db + auth + port 20203); start it once the DB has game data with:
+  #   docker compose --profile game up game
+  game:
+    <<: *server
+    profiles: ["game"]
+    working_dir: "/opt/superss/Linux Builds/Game Server"
+    command: ["./game"]
+    environment:
+      <<: *server-env
+      AUTH_HOST: "auth"
+      # No standalone GameGuard auth server on Linux, so disable it.
+      GAMEGUARDAUTH: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    ports:
+      - "20203:20203"
+
+volumes:
+  db-data:

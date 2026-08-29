@@ -1,0 +1,41 @@
+# Keep the Docker build context small and reproducible: only "Server Lib"
+# is copied by the Dockerfile, and build artifacts are rebuilt in-image.
+
+.git
+.github
+.cursor
+
+# Large / unrelated top-level content not needed for the Linux build.
+*.sql
+CE Trainer/
+Smart Calculator App/
+Tools/
+www/
+apache-conf/
+LICENSE
+readme.MD
+
+# Node projects (not part of the C++ Linux build).
+Server Lib/Node/
+
+# Previously-generated build artifacts (rebuilt fresh inside the image).
+Server Lib/Linux Builds/output-*/
+**/*.o
+**/*.o.d
+**/*.d
+Server Lib/Linux Builds/**/*.so
+Server Lib/Linux Builds/GGSrvLib26-1/GGSrvLib26-1.a
+Server Lib/Linux Builds/Auth Server/auth
+Server Lib/Linux Builds/Login Server/login
+Server Lib/Linux Builds/Message Server/msn
+Server Lib/Linux Builds/Rank Server/rank
+Server Lib/Linux Builds/Game Server/game
+Server Lib/Linux Builds/IFF Manager/iff
+
+# Logs / core dumps / test binaries.
+**/Log/
+**/core
+Server Lib/Linux Builds/testcl
+Server Lib/Linux Builds/testefs
+Server Lib/Linux Builds/testlc
+Server Lib/Linux Builds/testmd5
