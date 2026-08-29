@@ -4417,10 +4417,19 @@ void channel::requestEnterRoomGrandPrix(player& _session, packet *_packet) {
 		// Verifica condition equiped item
 		auto gp_condition = sIff::getInstance().findGrandPrixConditionEquip(gp->typeid_link);
 
-		if (gp_condition != nullptr && !_session.m_pi.checkEquipedItem(gp_condition->item_typeid))
-			throw exception("[channel::requestEnterRoomGrandPrix][Error] Player[UID=" + std::to_string(_session.m_pi.uid) 
+		uint32_t gp_condition_item_typeid = 0u;
+
+		// tem que está com pelo menos 1 item equipado, ex: (clubset, character, ball, caddie, Part)
+		// na condição pode vários itens mas do mesmo tipo(IFF::TYPE), ex: (3 clubset, 3 character, 2 ball, 1 caddie, 5 Part)
+		if (!gp_condition.empty() && !std::any_of(gp_condition.begin(), gp_condition.end(), [&_session, &gp_condition_item_typeid](auto& _el) -> bool {
+			
+			gp_condition_item_typeid = _el.item_typeid;
+
+			return _session.m_pi.checkEquipedItem(_el.item_typeid);
+		}))
+			throw exception("Player[UID=" + std::to_string(_session.m_pi.uid) 
 					+ "] Canal[ID=" + std::to_string((unsigned short)m_ci.id) + "] tentou entrar na sala Grand Prix[TYPEID=" + std::to_string(gp->_typeid) 
-					+ "] mas ele nao esta equipado com o item[TYPEID=" + std::to_string(gp_condition->item_typeid) + "]. Hacker ou Bug", STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x6700007, 0x6700007));
+					+ "] mas ele nao esta equipado com o item[TYPEID=" + std::to_string(gp_condition_item_typeid) + "]. Hacker ou Bug", STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x6700007, 0x6700007));
 
 		// Verifica Avg. Score
 		if (_session.m_pi.ui.getMediaScore() < gp->condition[0] || (gp->condition[1] > 0u && _session.m_pi.ui.getMediaScore() > gp->condition[1]))
@@ -4430,7 +4439,7 @@ void channel::requestEnterRoomGrandPrix(player& _session, packet *_packet) {
 					+ "] mas ele nao tem o Avg. Score necessario para entrar na sala. Hacker ou Bug", STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x6700008, 0x6700008));
 
 		// Verifica se ele tem o Grand Prix Ticket necessário
-		if (gp->ticket.qntd > 0u && gp->ticket._typeid) {
+		if (gp->ticket.qntd > 0u && gp->ticket._typeid != 0u) {
 
 			auto pWi = _session.m_pi.findWarehouseItemByTypeid(gp->ticket._typeid);
 
@@ -4449,11 +4458,19 @@ void channel::requestEnterRoomGrandPrix(player& _session, packet *_packet) {
 					+ "] mas nao concluiu o Grand Prix[TYPEID=" + std::to_string(gp->clear_gp_typeid) + "]. Hacker ou Bug", STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x670000A, 0x670000A));
 
 		// Verifica se o tipo do Grand Prix está ativo no server
-		if (gp->type > 0u && !sgs::gs::getInstance().getInfo().rate.checkBitGrandPrixEvent(gp->type))
-			throw exception("[channel::requestEnterRoomGrandPrix][Error] Player[UID=" + std::to_string(_session.m_pi.uid) 
-					+ "] Canal[ID=" + std::to_string((unsigned short)m_ci.id) + "] tentou entrar na sala Grand Prix[TYPEID=" + std::to_string(gp->_typeid) 
-					+ ", TYPE=" + std::to_string(gp->type) + "] mas esse type nao esta ativo no server[GP_TYPE=" + std::to_string(sgs::gs::getInstance().getInfo().rate.grand_prix_event) 
-					+ "]. Hacker ou Bug", STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x670000B, 0x670000B));
+		if (gp->type > 0u) {
+			if (!sgs::gs::getInstance().getInfo().rate.checkBitGrandPrixEvent(gp->type))
+				throw exception("[channel::requestEnterRoomGrandPrix][Error] Player[UID=" + std::to_string(_session.m_pi.uid) 
+						+ "] Canal[ID=" + std::to_string((unsigned short)m_ci.id) + "] tentou entrar na sala Grand Prix[TYPEID=" + std::to_string(gp->_typeid) 
+						+ ", TYPE=" + std::to_string(gp->type) + "] mas esse type nao esta ativo no server[GP_TYPE=" + std::to_string(sgs::gs::getInstance().getInfo().rate.grand_prix_event) 
+						+ "]. Hacker ou Bug", STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x670000B, 0x670000B));
+
+			if (gp->type == kGrandPrixEventTypeWeekend && !isWeekend())
+				throw exception("[channel::requestEnterRoomGrandPrix][Error] Player[UID=" + std::to_string(_session.m_pi.uid) 
+						+ "] Canal[ID=" + std::to_string((unsigned short)m_ci.id) + "] tentou entrar na sala Grand Prix[TYPEID=" + std::to_string(gp->_typeid) 
+						+ ", TYPE=" + std::to_string(gp->type) + "] mas esse type eh de final de semana, mas ainda nao eh final de semana. Hacker ou Bug", 
+						STDA_MAKE_ERROR(STDA_ERROR_TYPE::CHANNEL, 0x670000C, 0x670000C));
+		}
 
 		// Room variable
 		room *r = nullptr;
@@ -5166,6 +5183,14 @@ void channel::requestChangePlayerItemMyRoom(player& _session, packet* _packet) {
 						}
 					}
 				}
+
+				// Verifica se está em uma sala GrandPrix para verificar o GrandPrixConditionEquip
+				BEGIN_FIND_ROOM(_session.m_pi.mi.sala_numero);
+
+				if (r != nullptr && r->getClassType() == eROOM_CLASS_TYPE::RCT_GRAND_PRIX)
+					((RoomGrandPrix*)r)->requestChangeItemSlot(_session, ue);
+
+				END_FIND_ROOM;
 
 #if defined(_WIN32)
 				memcpy_s(_session.m_pi.ue.item_slot, sizeof(_session.m_pi.ue.item_slot), ue.item_slot, sizeof(_session.m_pi.ue.item_slot));
@@ -9366,6 +9391,14 @@ void channel::requestChangePlayerItemChannel(player& _session, packet* _packet) 
 				_session.m_pi.ei.char_info = pCe;
 				_session.m_pi.ue.character_id = item_id;
 
+				// Verifica se está em uma sala GrandPrix para verificar o GrandPrixConditionEquip
+				BEGIN_FIND_ROOM(_session.m_pi.mi.sala_numero);
+
+				if (r != nullptr && r->getClassType() == eROOM_CLASS_TYPE::RCT_GRAND_PRIX)
+					((RoomGrandPrix*)r)->requestChangeCharacter(_session, *pCe);
+
+				END_FIND_ROOM;
+
 				// Update ON DB
 				snmdb::NormalManagerDB::getInstance().add(0, new CmdUpdateCharacterEquiped(_session.m_pi.uid, item_id), channel::SQLDBResponse, this);
 
@@ -10605,7 +10638,7 @@ void channel::requestClubSetWorkShopUpRank(player& _session, packet *_packet) {
 		packet_func::session_send(p, &_session, 1);
 
 		// Check Se Ele Pode Transformar e se ele transformou
-		if (clubset->work_shop.flag_transformar) { // Esse Clubset pode transformar-se em um ClubSet Special
+		if (clubset->work_shop.can_transform) { // Esse Clubset pode transformar-se em um ClubSet Special
 			Lottery lottery((uint64_t)this);
 
 			lottery.push(250, 0x1000005D);		// Wingtross Evo-Knight Club Set
@@ -15003,7 +15036,7 @@ void channel::requestExchangeTPByItemLegacyTikiShop(player& _session, packet* _p
 			std::pair< uint32_t/*Qntd Item Per Tiki Pts*/, uint32_t/*Qntd Tiki Pts Per Itens*/ > ret{ 0u, 0u };
 
 			// Qntd Itens
-			ret.first = (_tiki.qnt_per_tikis_pts == 0u) ? 1u : _tiki.qnt_per_tikis_pts;
+			ret.first = (_tiki.qnt_per_tiki_pts == 0u) ? 1u : _tiki.qnt_per_tiki_pts;
 
 			// Tiki Pts
 			ret.second = (_tiki.tiki_pts == 0u) ? 1u : _tiki.tiki_pts;
