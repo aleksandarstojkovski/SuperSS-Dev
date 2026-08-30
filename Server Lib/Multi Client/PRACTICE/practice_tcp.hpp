@@ -5,8 +5,11 @@
 #define _STDA_PRACTICE_TCP_HPP
 
 #include "../../Projeto IOCP/PACKET/packet.h"
+#include "../../Projeto IOCP/UTIL/exception.h"
+#include "../../Projeto IOCP/UTIL/message_pool.h"
 
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -75,19 +78,34 @@ namespace stdA {
 			}
 
 			bool send_client(packet& p) {
-				p.make(m_key);
-				return write_all(p.getMakedBuf().buf, p.getMakedBuf().len);
+				try {
+					p.make(m_key);
+					return write_all(p.getMakedBuf().buf, p.getMakedBuf().len);
+				} catch (exception& e) {
+					std::cout << "[PracticeTcp] send_client: " << e.getFullMessageError() << std::endl;
+					return false;
+				}
 			}
 
 			bool send_server(packet& p) {
-				p.makeFull(m_key);
-				return write_all(p.getMakedBuf().buf, p.getMakedBuf().len);
+				try {
+					p.makeFull(m_key);
+					return write_all(p.getMakedBuf().buf, p.getMakedBuf().len);
+				} catch (exception& e) {
+					std::cout << "[PracticeTcp] send_server: " << e.getFullMessageError() << std::endl;
+					return false;
+				}
 			}
 
 			// First Login (0x00) / Game (0x3F) hello: no crypt, no compress.
 			bool send_raw(packet& p) {
-				p.makeRaw();
-				return write_all(p.getMakedBuf().buf, p.getMakedBuf().len);
+				try {
+					p.makeRaw();
+					return write_all(p.getMakedBuf().buf, p.getMakedBuf().len);
+				} catch (exception& e) {
+					std::cout << "[PracticeTcp] send_raw: " << e.getFullMessageError() << std::endl;
+					return false;
+				}
 			}
 
 			// Read one framed server->client packet (packet_head + payload) and unMakeFull.
@@ -104,8 +122,13 @@ namespace stdA {
 				out.add_maked(hdr, sizeof(hdr));
 				if (size > 0)
 					out.add_maked(body.data(), size);
-				out.unMakeFull(m_key);
-				out.init_maked();
+				try {
+					out.unMakeFull(m_key);
+					out.init_maked();
+				} catch (exception& e) {
+					std::cout << "[PracticeTcp] recv_server unMakeFull: " << e.getFullMessageError() << std::endl;
+					return false;
+				}
 				return true;
 			}
 
@@ -123,8 +146,13 @@ namespace stdA {
 				out.add_maked(hdr, sizeof(hdr));
 				if (size > 0)
 					out.add_maked(body.data(), size);
-				out.unMake(m_key);
-				out.init_maked();
+				try {
+					out.unMake(m_key);
+					out.init_maked();
+				} catch (exception& e) {
+					std::cout << "[PracticeTcp] recv_client unMake: " << e.getFullMessageError() << std::endl;
+					return false;
+				}
 				return true;
 			}
 

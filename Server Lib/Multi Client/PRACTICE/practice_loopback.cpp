@@ -59,10 +59,12 @@ int accept_one(int listen_fd) {
 void send_login_hello(PracticeTcp& tcp) {
 	packet p;
 	p.init_plain((unsigned short)0x00);
-	p.addInt32(1);		// session key (low byte used)
+	// unMakeFull treats the first Login hello as raw only when the key
+	// int32 is 0 (ph.size == 0x0B and the next 3 bytes are zero).
+	p.addInt32(0);		// session key
 	p.addInt32(100);	// login server uid
 	tcp.send_raw(p);
-	tcp.setKey(1);
+	tcp.setKey(0);
 }
 
 void send_login_ok(PracticeTcp& tcp, uint16_t game_port) {
@@ -260,6 +262,20 @@ void PracticeLoopback::stop() {
 }
 
 void PracticeLoopback::loginThread() {
+	try {
+		loginThreadInner();
+	} catch (exception& e) {
+		m_last_event = "login-exception";
+		_smp::message_pool::getInstance().push(new message(
+			"[PracticeLoopback] login thread: " + e.getFullMessageError(), CL_FILE_LOG_AND_CONSOLE));
+	} catch (const std::exception& e) {
+		m_last_event = "login-exception";
+		_smp::message_pool::getInstance().push(new message(
+			std::string("[PracticeLoopback] login thread std: ") + e.what(), CL_FILE_LOG_AND_CONSOLE));
+	}
+}
+
+void PracticeLoopback::loginThreadInner() {
 	int ls = listen_port(m_login_port);
 	if (ls < 0) {
 		_smp::message_pool::getInstance().push(new message(
@@ -300,6 +316,20 @@ void PracticeLoopback::loginThread() {
 }
 
 void PracticeLoopback::gameThread() {
+	try {
+		gameThreadInner();
+	} catch (exception& e) {
+		m_last_event = "game-exception";
+		_smp::message_pool::getInstance().push(new message(
+			"[PracticeLoopback] game thread: " + e.getFullMessageError(), CL_FILE_LOG_AND_CONSOLE));
+	} catch (const std::exception& e) {
+		m_last_event = "game-exception";
+		_smp::message_pool::getInstance().push(new message(
+			std::string("[PracticeLoopback] game thread std: ") + e.what(), CL_FILE_LOG_AND_CONSOLE));
+	}
+}
+
+void PracticeLoopback::gameThreadInner() {
 	int ls = listen_port(m_game_port);
 	if (ls < 0) {
 		_smp::message_pool::getInstance().push(new message(

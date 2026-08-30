@@ -6,9 +6,11 @@
 #include "../Multi Client/PRACTICE/practice_loopback.hpp"
 #include "../Multi Client/PRACTICE/practice_tcp.hpp"
 
-#include <atomic>
 #include <chrono>
+#include <exception>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -23,6 +25,12 @@ constexpr const char* kLoginPass = "123456";
 void log_line(const std::string& text) {
 	std::cout << text << std::endl;
 	_smp::message_pool::getInstance().push(new message(text, CL_FILE_LOG_AND_CONSOLE));
+}
+
+std::string tipo_hex(unsigned short tipo) {
+	std::ostringstream os;
+	os << "0x" << std::hex << std::uppercase << tipo;
+	return os.str();
 }
 
 bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
@@ -58,7 +66,7 @@ bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
 		packet reply;
 		if (!login.recv_server(reply))
 			break;
-		log_line("[practice_bot] login reply 0x" + std::to_string(reply.getTipo()));
+		log_line("[practice_bot] login reply " + tipo_hex(reply.getTipo()));
 		if (reply.getTipo() == 0x02)
 			have_server_list = true;
 	}
@@ -104,7 +112,7 @@ bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
 			log_line("[practice_bot] game lobby recv failed");
 			return false;
 		}
-		log_line("[practice_bot] game reply 0x" + std::to_string(reply.getTipo()));
+		log_line("[practice_bot] game reply " + tipo_hex(reply.getTipo()));
 		if (reply.getTipo() == 0x4D)
 			have_channels = true;
 	}
@@ -143,18 +151,26 @@ bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
 }  // namespace
 
 int main(int argc, char** argv) {
+	std::set_terminate([]() {
+		try {
+			if (std::current_exception())
+				std::rethrow_exception(std::current_exception());
+		} catch (exception& e) {
+			std::cerr << "[practice_bot] terminate: " << e.getFullMessageError() << std::endl;
+		} catch (const std::exception& e) {
+			std::cerr << "[practice_bot] terminate std: " << e.what() << std::endl;
+		} catch (...) {
+			std::cerr << "[practice_bot] terminate unknown" << std::endl;
+		}
+		std::_Exit(134);
+	});
+
 	uint16_t login_port = 11030;
 	uint16_t game_port = 12030;
 	if (argc >= 2)
 		login_port = static_cast<uint16_t>(std::stoi(argv[1]));
 	if (argc >= 3)
 		game_port = static_cast<uint16_t>(std::stoi(argv[2]));
-
-	std::atomic<bool> log_run{true};
-	std::thread log_th([&]() {
-		while (log_run.load())
-			_smp::message_pool::getInstance().console_log(50);
-	});
 
 	log_line("[practice_bot] Practice 3-hole autonomous test (loopback login="
 		+ std::to_string(login_port) + " game=" + std::to_string(game_port) + ")");
@@ -168,9 +184,6 @@ int main(int argc, char** argv) {
 	if (!login.connect_to("127.0.0.1", login_port) || !game.connect_to("127.0.0.1", game_port)) {
 		log_line("[practice_bot] failed to connect loopback");
 		loopback.stop();
-		log_run = false;
-		if (log_th.joinable())
-			log_th.join();
 		return 2;
 	}
 
@@ -178,9 +191,6 @@ int main(int argc, char** argv) {
 	try {
 		if (!loginAndEnterGame(login, game)) {
 			loopback.stop();
-			log_run = false;
-			if (log_th.joinable())
-				log_th.join();
 			return 1;
 		}
 
@@ -198,7 +208,7 @@ int main(int argc, char** argv) {
 				log_line("[practice_bot] recv failed while fsm=" + fsm.stateName());
 				break;
 			}
-			log_line("[practice_bot] sv 0x" + std::to_string(inbound.getTipo())
+			log_line("[practice_bot] sv " + tipo_hex(inbound.getTipo())
 				+ " fsm=" + fsm.stateName());
 			fsm.onServerPacket(inbound.getTipo(), inbound);
 		}
@@ -226,8 +236,5 @@ int main(int argc, char** argv) {
 		rc = 1;
 	}
 
-	log_run = false;
-	if (log_th.joinable())
-		log_th.join();
 	return rc;
 }

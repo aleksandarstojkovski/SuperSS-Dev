@@ -28,7 +28,9 @@ namespace stdA {
 
 		private:
 			void loginThread();
+			void loginThreadInner();
 			void gameThread();
+			void gameThreadInner();
 
 			uint16_t m_login_port;
 			uint16_t m_game_port;
