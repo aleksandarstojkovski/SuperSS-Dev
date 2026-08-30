@@ -62,6 +62,7 @@ bool recv_until(PracticeTcp& tcp, unsigned short want, packet& out, int max_pkts
 struct LoginCtx {
 	std::string user;
 	std::string pass;
+	std::string nickname;
 	int32_t uid = 0;
 	int32_t game_uid = 20203;
 	std::string game_ip = "127.0.0.1";
@@ -106,9 +107,25 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 				log_line("[practice_bot] login error=" + std::to_string(err));
 				return false;
 			}
-			reply.readString();
+			reply.readString();	// id
 			ctx.uid = reply.readInt32();
-			log_line("[practice_bot] logged uid=" + std::to_string(ctx.uid));
+			try {
+				reply.readInt32();	// capability
+				reply.readInt16();	// level
+				reply.readInt32();
+				reply.readInt32();
+				for (int i = 0; i < 19; ++i)
+					(void)reply.readUint8();	// build date
+				(void)reply.readString();	// auth token
+				reply.readUint32();
+				reply.readUint32();
+				ctx.nickname = reply.readString();
+			} catch (...) {
+			}
+			if (ctx.nickname.empty())
+				ctx.nickname = ctx.user;
+			log_line("[practice_bot] logged uid=" + std::to_string(ctx.uid)
+				+ " nick=" + ctx.nickname);
 		} else if (reply.getTipo() == 0x02) {
 			const int n = reply.readInt8();
 			if (n > 0) {
@@ -247,8 +264,10 @@ bool play_practice(PracticeTcp& game, bool require_loopback, PracticeLoopback* l
 	return ok;
 }
 
-bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shared, const std::string& tag) {
+bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shared,
+		const std::string& tag, const std::string& user, uint32_t uid) {
 	VersusFsm fsm(role, shared);
+	fsm.setIdentity(user, uid);
 	fsm.setSend([&](packet& pkt) {
 		if (!game.send_client(pkt))
 			throw exception("[practice_bot] send failed", 1);
@@ -267,14 +286,20 @@ bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shar
 			continue;
 		}
 		log_line(std::string("[practice_bot][") + tag + "] sv " + tipo_hex(inbound.getTipo())
-			+ " fsm=" + fsm.stateName());
+			+ " fsm=" + fsm.stateName()
+			+ " oid=" + std::to_string(fsm.oid()));
 		fsm.onServerPacket(inbound.getTipo(), inbound);
+		if (inbound.getTipo() == 0x48 && fsm.oidResolved())
+			log_line(std::string("[practice_bot][") + tag + "] resolved oid="
+				+ std::to_string(fsm.oid()) + " user=" + user
+				+ " uid=" + std::to_string(uid));
 	}
 
 	const bool ok = fsm.success() && fsm.holesCompleted() >= 3;
 	log_line(std::string("[practice_bot][") + tag + "] result=" + (ok ? "PASS" : "FAIL")
 		+ " fsm=" + fsm.stateName()
 		+ " holes=" + std::to_string(fsm.holesCompleted())
+		+ " oid=" + std::to_string(fsm.oid())
 		+ (fsm.lastError().empty() ? "" : " err=" + fsm.lastError()));
 	return ok;
 }
@@ -302,7 +327,9 @@ int run_real_versus(const std::string& host, uint16_t login_port,
 				log_line("[practice_bot][host] game enter failed");
 				return;
 			}
-			host_ok = play_versus_one(game, VersusFsm::Role::Host, shared, "host");
+			host_ok = play_versus_one(game, VersusFsm::Role::Host, shared, "host",
+				ctx.nickname.empty() ? ctx.user : ctx.nickname,
+				static_cast<uint32_t>(ctx.uid));
 			host_rc = host_ok ? 0 : 1;
 			game.close();
 		} catch (exception& e) {
@@ -326,7 +353,9 @@ int run_real_versus(const std::string& host, uint16_t login_port,
 				log_line("[practice_bot][guest] game enter failed");
 				return;
 			}
-			guest_ok = play_versus_one(game, VersusFsm::Role::Guest, shared, "guest");
+			guest_ok = play_versus_one(game, VersusFsm::Role::Guest, shared, "guest",
+				ctx.nickname.empty() ? ctx.user : ctx.nickname,
+				static_cast<uint32_t>(ctx.uid));
 			guest_rc = guest_ok ? 0 : 1;
 			game.close();
 		} catch (exception& e) {

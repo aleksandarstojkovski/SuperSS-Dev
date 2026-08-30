@@ -44,8 +44,11 @@ restore_pangya() {
 		MOVE N'pangya_log' TO N'${DATA_DIR}/pangya_log.ldf',
 		REPLACE, STATS = 10"
 	echo "[mssql] restore finished"
-	sql -Q "UPDATE pangya.pangya.account SET PASSWORD = N'e10adc3949ba59abbe56e057f20f883e' WHERE ID = N'test'"
-	echo "[mssql] set account test password to MD5(123456)"
+}
+
+set_bot_passwords() {
+	sql -Q "UPDATE pangya.pangya.account SET PASSWORD = N'e10adc3949ba59abbe56e057f20f883e' WHERE ID IN (N'test', N'ciao')"
+	echo "[mssql] bot accounts test,ciao password = MD5(123456)"
 }
 
 /opt/mssql/bin/sqlservr &
@@ -56,7 +59,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! wait_for_sql || ! restore_pangya; then
+if ! wait_for_sql || ! restore_pangya || ! set_bot_passwords; then
 	echo "[mssql] init failed" >&2
 	exit 1
 fi

@@ -9,9 +9,12 @@ namespace stdA {
 VersusFsm::VersusFsm(Role role, VersusShared& shared, uint8_t holes, uint8_t course)
 	: m_shared(shared), m_role(role), m_state(State::Idle),
 	  m_holes(holes == 0 ? 3 : holes), m_course(course),
-	  m_holes_done(0), m_current_hole(0), m_oid(1), m_user_info_size(USER_INFO_SIZE),
+	  m_holes_done(0), m_current_hole(0), m_oid(0), m_uid(0),
+	  m_user_info_size(USER_INFO_SIZE),
 	  m_error(), m_item_sent(false), m_finish_sent(false),
-	  m_join_sent(false), m_ready_sent(false), m_shot_this_turn(false) {
+	  m_join_sent(false), m_ready_sent(false), m_shot_this_turn(false),
+	  m_saw_guest_ready_pkt(false), m_oid_resolved(false),
+	  m_hole_data_sent(false) {
 	std::memset(m_room_key, 0x11, sizeof(m_room_key));
 }
 
@@ -26,6 +29,12 @@ void VersusFsm::setRoomKey(const unsigned char key[16]) {
 
 void VersusFsm::setOid(uint32_t oid) {
 	m_oid = oid;
+	m_oid_resolved = oid != 0;
+}
+
+void VersusFsm::setIdentity(const std::string& name, uint32_t uid) {
+	m_self_name = name;
+	m_uid = uid;
 }
 
 void VersusFsm::setUserInfoSize(size_t size) {
@@ -81,7 +90,7 @@ void VersusFsm::onLobbyEntered() {
 void VersusFsm::maybeStartAsHost() {
 	if (m_role != Role::Host || m_state != State::WaitingGuest)
 		return;
-	if (!m_shared.guest_ready.load())
+	if (!m_shared.guest_ready.load() || !m_saw_guest_ready_pkt)
 		return;
 	m_state = State::Starting;
 	_smp::message_pool::getInstance().push(new message(
@@ -111,6 +120,7 @@ void VersusFsm::tick() {
 void VersusFsm::beginHole(uint8_t hole_number) {
 	m_current_hole = hole_number;
 	m_shot_this_turn = false;
+	m_hole_data_sent = false;
 	m_state = State::WaitingTurn;
 	_smp::message_pool::getInstance().push(new message(
 		std::string("[VersusFsm][") + roleName() + "] Load hole "
@@ -123,7 +133,7 @@ void VersusFsm::beginHole(uint8_t hole_number) {
 }
 
 void VersusFsm::shootIfMyTurn(uint32_t turn_oid) {
-	if (turn_oid != m_oid || m_shot_this_turn)
+	if (m_oid == 0 || turn_oid != m_oid || m_shot_this_turn)
 		return;
 	m_shot_this_turn = true;
 	m_state = State::WaitingHoleResult;
@@ -135,19 +145,57 @@ void VersusFsm::shootIfMyTurn(uint32_t turn_oid) {
 	sendHoleOutShot(m_send, m_oid, m_room_key);
 }
 
+// PlayerRoomInfo (pack 1): oid@0, nickname@4[22], uid@108.
+static constexpr size_t kPlayerRoomUidOff = 108;
+static constexpr size_t kPlayerRoomNickOff = 4;
+static constexpr size_t kPlayerRoomNickLen = 22;
+
 void VersusFsm::tryParseOid(packet& p) {
-	if (p.getSize() < 8)
+	const unsigned char* buf = p.getBuffer();
+	const size_t n = p.getSize();
+	if (buf == nullptr || n < 12)
 		return;
-	try {
-		const unsigned char opt = static_cast<unsigned char>(p.readUint8());
-		p.readInt16();
-		if (opt == 0 || opt == 5 || opt == 7) {
-			p.readUint8();
-			const uint32_t oid = static_cast<uint32_t>(p.readInt32());
-			if (oid < 256)
-				setOid(oid);
+
+	for (size_t i = 0; i + 8 < n; ++i) {
+		uint32_t oid = 0;
+		std::memcpy(&oid, buf + i, 4);
+		if (oid == 0 || oid >= 256)
+			continue;
+
+		bool nick_ok = false;
+		if (!m_self_name.empty() && i + kPlayerRoomNickOff + kPlayerRoomNickLen <= n) {
+			if (std::memcmp(buf + i + kPlayerRoomNickOff, m_self_name.c_str(),
+					m_self_name.size()) == 0) {
+				bool pad = true;
+				for (size_t k = m_self_name.size(); k < kPlayerRoomNickLen; ++k) {
+					if (buf[i + kPlayerRoomNickOff + k] != 0) {
+						pad = false;
+						break;
+					}
+				}
+				nick_ok = pad;
+			}
 		}
-	} catch (...) {
+
+		bool uid_ok = false;
+		if (m_uid != 0 && i + kPlayerRoomUidOff + 4 <= n) {
+			uint32_t uid = 0;
+			std::memcpy(&uid, buf + i + kPlayerRoomUidOff, 4);
+			uid_ok = (uid == m_uid);
+		}
+
+		if (!nick_ok && !uid_ok)
+			continue;
+
+		if (!m_oid_resolved || m_oid != oid) {
+			setOid(oid);
+			_smp::message_pool::getInstance().push(new message(
+				std::string("[VersusFsm][") + roleName() + "] oid="
+					+ std::to_string(oid) + " uid=" + std::to_string(m_uid)
+					+ " nick=" + m_self_name,
+				CL_FILE_LOG_AND_CONSOLE));
+		}
+		return;
 	}
 }
 
@@ -208,16 +256,31 @@ void VersusFsm::onServerPacket(unsigned short tipo, packet& p) {
 		case 0x63: {
 			if (p.getSize() >= 4) {
 				const uint32_t turn_oid = static_cast<uint32_t>(p.readInt32());
-				shootIfMyTurn(turn_oid);
+				m_shot_this_turn = false;
+				_smp::message_pool::getInstance().push(new message(
+					std::string("[VersusFsm][") + roleName()
+						+ "] turn pkt=0x" + (tipo == 0x53 ? "53" : "63")
+						+ " turn_oid=" + std::to_string(turn_oid)
+						+ " my_oid=" + std::to_string(m_oid),
+					CL_FILE_LOG_AND_CONSOLE));
+				if (m_oid == 0)
+					fail("turn arrived before own oid was resolved from 0x48");
+				else
+					shootIfMyTurn(turn_oid);
 			}
 			break;
 		}
+		case 0x65:
 		case 0x6D:
-			sendFinishHoleData(m_send, m_user_info_size);
+			if (!m_hole_data_sent) {
+				m_hole_data_sent = true;
+				sendFinishHoleData(m_send, m_user_info_size);
+			}
 			m_holes_done++;
 			_smp::message_pool::getInstance().push(new message(
 				std::string("[VersusFsm][") + roleName() + "] Hole done "
-					+ std::to_string(m_holes_done) + "/" + std::to_string(m_holes),
+					+ std::to_string(m_holes_done) + "/" + std::to_string(m_holes)
+					+ (tipo == 0x65 ? " (0x65 VS)" : " (0x6D)"),
 				CL_FILE_LOG_AND_CONSOLE));
 			if (m_holes_done >= m_holes)
 				m_state = State::Finishing;
@@ -225,13 +288,23 @@ void VersusFsm::onServerPacket(unsigned short tipo, packet& p) {
 				beginHole(static_cast<uint8_t>(m_holes_done + 1));
 			break;
 		case 0x199:
-			m_state = State::Finishing;
+			// Broadcast when the first player holes-out the last hole.
+			// The other player still has a 0x63 turn — do not leave WaitingTurn.
+			if (m_shot_this_turn && m_current_hole >= m_holes)
+				m_state = State::Finishing;
 			break;
+		case 0x66:
 		case 0x79:
 		case 0xCE:
-			if ((m_state == State::Finishing || m_holes_done >= m_holes) && !m_finish_sent) {
+			if (m_holes_done < m_holes)
+				m_holes_done = m_holes;
+			if (!m_finish_sent) {
 				m_state = State::Finishing;
 				m_finish_sent = true;
+				if (!m_hole_data_sent) {
+					m_hole_data_sent = true;
+					sendFinishHoleData(m_send, m_user_info_size);
+				}
 				sendFinishGame(m_send, m_user_info_size);
 			}
 			break;
@@ -244,9 +317,17 @@ void VersusFsm::onServerPacket(unsigned short tipo, packet& p) {
 					CL_FILE_LOG_AND_CONSOLE));
 			}
 			break;
-		case 0x253:
-			fail("server rejected start (0x253)");
+		case 0x78:
+			if (m_role == Role::Host && m_state == State::WaitingGuest)
+				m_saw_guest_ready_pkt = true;
 			break;
+		case 0x253: {
+			uint32_t err = 0;
+			if (p.getSize() >= 4)
+				err = static_cast<uint32_t>(p.readInt32());
+			fail("server rejected start (0x253) err=" + std::to_string(err));
+			break;
+		}
 		default:
 			break;
 		}
