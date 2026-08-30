@@ -53,6 +53,7 @@ namespace stdA {
 			static int packet04D(void* _arg1, void* _arg2);
 			static int packet04E(void* _arg1, void* _arg2);
 			static int packet0F5(void* _arg1, void* _arg2);
+			static int packetPractice(void* _arg1, void* _arg2);
 			static int packet0D7(void* _arg1, void* _arg2);
 			static int packet1A9(void* _arg1, void* _arg2);
 			static int packet1AD(void* _arg1, void* _arg2);

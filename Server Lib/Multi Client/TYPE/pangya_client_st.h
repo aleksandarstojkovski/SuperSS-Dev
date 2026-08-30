@@ -41,7 +41,8 @@ namespace stdA {
 
 		long volatile m_RCLOP;		// Recebe Canais Ler Outros Pacotes
 		long volatile m_RC;			// Recebe Canais
-    };
+		unsigned char m_practice;	// 1 = autonomous Practice 3-hole bot
+	};
 
 	struct server_list {
 		void clear() {

@@ -1,6 +1,10 @@
 *.o
 *.log
 *.d
+/output-mc-debug/
+/Multi Client/practice_bot
+/Multi Client/bot.ini
+/Multi Client/bot.ini.template
 test.cpp
 test
 /Log

@@ -1,0 +1,13 @@
+# MSSQL with pangya.bak baked in. Restore runs on first boot from the image file.
+FROM mcr.microsoft.com/mssql/server:2019-latest
+
+USER root
+COPY docker/assets/pangya.bak /opt/pangya/pangya.bak
+COPY docker/ensure_tourney_bots.sql /opt/pangya/ensure_tourney_bots.sql
+COPY docker/mssql-entrypoint.sh /usr/local/bin/mssql-entrypoint.sh
+RUN chmod 755 /usr/local/bin/mssql-entrypoint.sh \
+	&& chmod 644 /opt/pangya/pangya.bak /opt/pangya/ensure_tourney_bots.sql
+
+USER mssql
+ENV PANGYA_BAK=/opt/pangya/pangya.bak
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/mssql-entrypoint.sh"]

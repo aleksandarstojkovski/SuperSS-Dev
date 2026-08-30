@@ -186,6 +186,7 @@ int packet_func::packet003(void* _arg1, void* _arg2) {
 			strcpy_s(ci_tmp.m_client_version, pd._session.m_ci.m_client_version);
 			memcpy_s(ci_tmp.m_keys, sizeof(ci_tmp.m_keys), pd._session.m_ci.m_keys, sizeof(ci_tmp.m_keys));
 			ci_tmp.m_packet_version = pd._session.m_ci.m_packet_version;
+			ci_tmp.m_practice = pd._session.m_ci.m_practice;
 
 			mc->ConnectAndAssoc(ci->m_list_servers.a_servers[0].ip, ci->m_list_servers.a_servers[0].port, ci_tmp);
 			
@@ -343,6 +344,18 @@ int packet_func::packet0F5(void* _arg1, void* _arg2) {
 
 	pd._session.m_ci.m_lobby = 1;
 
+	if (mc->practiceMode() || pd._session.m_ci.m_practice) {
+		_smp::message_pool::getInstance().push(new message(
+			"Player ID: " + std::string(pd._session.m_ci.m_id) + ". Practice bot: create 3-hole room.",
+			CL_ONLY_CONSOLE));
+		player* sess = &pd._session;
+		pd._session.m_practice.setSend([sess](packet& pkt) {
+			packet_func::session_send(pkt, sess, 1);
+		});
+		pd._session.m_practice.onLobbyEntered();
+		return 0;
+	}
+
 	// Tenta entrar na sala 0
 	packet p((unsigned short)0x09);
 
@@ -443,6 +456,16 @@ int packet_func::packet1AD(void* _arg1, void* _arg2) {
 	}else
 		_smp::message_pool::getInstance().push(new message("Erro ao pegar WebKey.", CL_FILE_LOG_AND_CONSOLE));
 
+	return 0;
+};
+
+int packet_func::packetPractice(void* _arg1, void* _arg2) {
+	MAKE_BEGIN_PACKET_CLIENT(_arg1, _arg2);
+
+	if (!mc->practiceMode() && !pd._session.m_ci.m_practice)
+		return 0;
+
+	pd._session.m_practice.onServerPacket(pd._packet->getTipo(), *pd._packet);
 	return 0;
 };
 

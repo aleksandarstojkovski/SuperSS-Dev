@@ -7,6 +7,7 @@
 #define _STDA_CLIENTE_HPP
 
 #include "../TYPE/client_info.h"
+#include "../PRACTICE/practice_fsm.hpp"
 #include "../../Projeto IOCP/SOCKET/session.h"
 #include "../../Projeto IOCP/THREAD POOL/threadpool_base.hpp"
 
@@ -25,6 +26,7 @@ namespace stdA {
 
 		public:
 			ClientInfo m_ci;
+			PracticeFsm m_practice;
 	};
 }
 
