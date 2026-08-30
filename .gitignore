@@ -234,7 +234,8 @@ UpgradeLog*.htm
 *.mdf
 *.ldf
 *.bak
-docker/data/*.bak
+docker/data/*
+!docker/data/.gitkeep
 
 # Business Intelligence projects
 *.rdl.data

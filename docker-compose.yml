@@ -1,0 +1,159 @@
+# SuperSS real stack — one command from the repo root:
+#   docker compose up -d
+# Downloads pangya.bak + pangya_jp.iff, restores MSSQL, starts Auth/Login/Message/Rank/Game.
+#
+# Optional overrides:
+#   PANGYA_BAK_URL  PANGYA_IFF_URL  MSSQL_SA_PASSWORD
+
+name: superss
+
+x-asset-urls: &asset-urls
+  PANGYA_BAK_URL: ${PANGYA_BAK_URL:-http://51.89.73.141/pangya.bak}
+  PANGYA_IFF_URL: ${PANGYA_IFF_URL:-http://51.89.73.141/pangya_jp.iff}
+
+x-server: &server
+  image: superss-odbc:latest
+  pull_policy: missing
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+  entrypoint: ["/bin/sh", "/usr/local/bin/server-entrypoint.sh"]
+  depends_on:
+    assets:
+      condition: service_completed_successfully
+    mssql:
+      condition: service_healthy
+
+services:
+  assets:
+    image: curlimages/curl:8.12.1
+    user: "0"
+    environment:
+      <<: *asset-urls
+      DATA_DIR: /data
+    volumes:
+      - ./docker/data:/data
+      - ./docker/fetch-assets.sh:/fetch-assets.sh:ro
+    entrypoint: ["/bin/sh", "/fetch-assets.sh"]
+    restart: "no"
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Pangya!Test123}
+      MSSQL_PID: Express
+      PANGYA_BAK: /var/opt/mssql/backup/pangya.bak
+      <<: *asset-urls
+    entrypoint: ["/bin/bash", "/usr/local/bin/mssql-entrypoint.sh"]
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./docker/data:/var/opt/mssql/backup
+      - ./docker/mssql-entrypoint.sh:/usr/local/bin/mssql-entrypoint.sh:ro
+    ports:
+      - "1433:1433"
+    depends_on:
+      assets:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q \"IF DB_ID('pangya') IS NULL RAISERROR('pangya not restored',16,1)\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 25s
+    restart: unless-stopped
+
+  auth:
+    <<: *server
+    working_dir: /opt/superss/Linux Builds/Auth Server
+    command: ["./auth"]
+    volumes:
+      - ./docker/server-entrypoint.sh:/usr/local/bin/server-entrypoint.sh:ro
+      - ./docker/server-auth.ini:/opt/superss/Linux Builds/Auth Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Auth Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+    ports:
+      - "7777:7777"
+
+  login:
+    <<: *server
+    working_dir: /opt/superss/Linux Builds/Login Server
+    command: ["./login"]
+    depends_on:
+      assets:
+        condition: service_completed_successfully
+      mssql:
+        condition: service_healthy
+      auth:
+        condition: service_started
+    volumes:
+      - ./docker/server-entrypoint.sh:/usr/local/bin/server-entrypoint.sh:ro
+      - ./docker/server-login.ini:/opt/superss/Linux Builds/Login Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Login Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+      - ./docker/data:/data:ro
+    ports:
+      - "10303:10303"
+
+  message:
+    <<: *server
+    working_dir: /opt/superss/Linux Builds/Message Server
+    command: ["./msn"]
+    depends_on:
+      assets:
+        condition: service_completed_successfully
+      mssql:
+        condition: service_healthy
+      auth:
+        condition: service_started
+    volumes:
+      - ./docker/server-entrypoint.sh:/usr/local/bin/server-entrypoint.sh:ro
+      - ./docker/server-message.ini:/opt/superss/Linux Builds/Message Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Message Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+    ports:
+      - "30303:30303"
+
+  rank:
+    <<: *server
+    working_dir: /opt/superss/Linux Builds/Rank Server
+    command: ["./rank"]
+    volumes:
+      - ./docker/server-entrypoint.sh:/usr/local/bin/server-entrypoint.sh:ro
+      - ./docker/server-rank.ini:/opt/superss/Linux Builds/Rank Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Rank Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+    ports:
+      - "4774:4774"
+
+  game:
+    <<: *server
+    working_dir: /opt/superss/Linux Builds/Game Server
+    command: ["./game"]
+    depends_on:
+      assets:
+        condition: service_completed_successfully
+      mssql:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      login:
+        condition: service_started
+    volumes:
+      - ./docker/server-entrypoint.sh:/usr/local/bin/server-entrypoint.sh:ro
+      - ./docker/server-game.ini:/opt/superss/Linux Builds/Game Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Game Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+      - ./docker/data:/data:ro
+    ports:
+      - "20203:20203"
+
+volumes:
+  mssql-data:

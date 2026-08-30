@@ -1,1 +1,2 @@
-# Put pangya.bak here (gitignored). docker-compose.real.yml restores it into MSSQL.
+# Compose downloads pangya.bak and pangya_jp.iff here (gitignored).
+# docker compose up -d

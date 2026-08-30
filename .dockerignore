@@ -1,0 +1,13 @@
+.git
+**/.git
+**/.gitignore
+docker/data
+**/*.bak
+**/*.o
+**/*.o.d
+**/output-*/
+**/output-mc-debug/
+Server Lib/Linux Builds/Game Server/data/*.iff
+Server Lib/Linux Builds/practice_bot
+**/*.md
+.github

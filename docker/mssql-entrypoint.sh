@@ -4,7 +4,7 @@ set -euo pipefail
 
 SA_PASSWORD="${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD is required}"
 BAK="${PANGYA_BAK:-/var/opt/mssql/backup/pangya.bak}"
-BAK_URL="${PANGYA_BAK_URL:-}"
+BAK_URL="${PANGYA_BAK_URL:-http://51.89.73.141/pangya.bak}"
 DATA_DIR="${MSSQL_DATA_DIR:-/var/opt/mssql/data}"
 SQLCMD=(/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -b)
 
