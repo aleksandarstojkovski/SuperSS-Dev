@@ -98,7 +98,39 @@ void PracticeFsm::onServerPacket(unsigned short tipo, packet& p) {
 
 	try {
 		switch (tipo) {
+		case 0x48: {	// player room list — first field of PlayerRoomInfo is oid
+			if (p.getSize() >= 8) {
+				const unsigned char opt = static_cast<unsigned char>(p.readUint8());
+				p.readInt16();
+				if (opt == 0 || opt == 5 || opt == 7) {
+					p.readUint8();	// count
+					const uint32_t oid = static_cast<uint32_t>(p.readInt32());
+					if (oid < 256) {
+						setOid(oid);
+						_smp::message_pool::getInstance().push(new message(
+							"[PracticeFsm] oid=" + std::to_string(oid),
+							CL_FILE_LOG_AND_CONSOLE));
+					}
+				}
+			}
+			break;
+		}
 		case 0x49: {	// room created / room info
+			// RoomInfo: nome[64] + senha + state + flag + max + num + key[17]
+			try {
+				p.readInt16();
+				for (int i = 0; i < 69; ++i)
+					(void)p.readUint8();
+				unsigned char key[16]{};
+				bool any = false;
+				for (int i = 0; i < 16; ++i) {
+					key[i] = static_cast<unsigned char>(p.readUint8());
+					any = any || key[i] != 0;
+				}
+				if (any)
+					setRoomKey(key);
+			} catch (...) {
+			}
 			if (m_state != State::CreatingRoom && m_state != State::Idle)
 				break;
 			m_state = State::Starting;

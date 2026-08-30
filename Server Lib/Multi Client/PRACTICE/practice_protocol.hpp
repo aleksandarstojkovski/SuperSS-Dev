@@ -99,10 +99,15 @@ namespace stdA {
 	}
 
 	inline void sendChangeItemRoom(const PracticeSendFn& send) {
-		// Official client sends 0x0C after start; that call triggers sendInitialData.
+		// TC_ALL (7) is the official post-start 0x0C; room::startGame()
+		// only runs from that branch and is what sends course 0x76/0x52.
 		packet p;
 		p.init_plain((unsigned short)0x0C);
-		p.addUint8(0);
+		p.addUint8(7);
+		p.addUint32(0);	// character id (0 = keep / first owned)
+		p.addUint32(0);	// caddie
+		p.addUint32(0);	// clubset
+		p.addUint32(0);	// ball
 		send(p);
 	}
 
