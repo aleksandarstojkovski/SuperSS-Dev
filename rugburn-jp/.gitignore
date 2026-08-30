@@ -1,0 +1,9 @@
+/.direnv/
+/.vscode/
+/.vs/
+/result
+*.user
+gglog.txt
+/.tmp/
+/compile_flags.txt
+/compile_commands.json
