@@ -17,6 +17,9 @@ namespace stdA {
 
 			virtual void start() override;
 
+			void setPracticeMode(bool enable) { m_practice_mode = enable; }
+			bool practiceMode() const { return m_practice_mode; }
+
 			virtual void checkClienteOnline() override;
 
 			virtual void ConnectAndAssoc(std::string _host, short _port, ClientInfo& _ci);
@@ -34,6 +37,7 @@ namespace stdA {
 			virtual void commandScan() override;
 
 			unsigned long m_num_connection;
+			bool m_practice_mode;
 
 		protected:
 			ClienteManager m_cliente_manager;

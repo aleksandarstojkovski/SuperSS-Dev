@@ -182,6 +182,7 @@
     <ClCompile Include="..\..\Projeto IOCP\UTIL\reader_ini.cpp" />
     <ClCompile Include="..\..\Projeto IOCP\UTIL\util_time.cpp" />
     <ClCompile Include="..\PACKET\packet_func_client.cpp" />
+    <ClCompile Include="..\PRACTICE\practice_fsm.cpp" />
     <ClCompile Include="..\SESSION\cliente_manager.cpp" />
     <ClCompile Include="..\SESSION\player.cpp" />
     <ClCompile Include="..\TYPE\client_info.cpp" />

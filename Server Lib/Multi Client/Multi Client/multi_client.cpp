@@ -19,7 +19,8 @@ using namespace stdA;
 multi_client* smc::mc = nullptr;
 
 multi_client::multi_client(unsigned long num_connection) : 
-		client(m_cliente_manager), m_cliente_manager(*this, num_connection * 2, 0), m_num_connection(num_connection) {
+		client(m_cliente_manager), m_cliente_manager(*this, num_connection * 2, 0),
+		m_num_connection(num_connection), m_practice_mode(false) {
 
 	if (m_state == FAILURE) {
 		_smp::message_pool::getInstance().push(new message("[multi_client::multi_client][Error] Multi_client inicializado com error" , CL_FILE_LOG_AND_CONSOLE));
@@ -40,6 +41,21 @@ multi_client::multi_client(unsigned long num_connection) :
 		packet_func::funcs.addPacketCall(0x04D, packet_func::packet04D, this);
 		packet_func::funcs.addPacketCall(0x04E, packet_func::packet04E, this);
 		packet_func::funcs.addPacketCall(0x0F5, packet_func::packet0F5, this);
+		packet_func::funcs.addPacketCall(0x049, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x052, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x053, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x05B, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x06D, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x076, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x077, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x079, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x09E, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x0C8, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x0CE, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x199, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x230, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x231, packet_func::packetPractice, this);
+		packet_func::funcs.addPacketCall(0x253, packet_func::packetPractice, this);
 		packet_func::funcs.addPacketCall(0x0D7, packet_func::packet0D7, this);
 		packet_func::funcs.addPacketCall(0x1A9, packet_func::packet1A9, this);
 		packet_func::funcs.addPacketCall(0x1AD, packet_func::packet1AD, this);
@@ -117,6 +133,7 @@ void multi_client::start() {
 			strcpy_s(ci.m_pass, "123456");
 			strcpy_s(ci.m_client_version, "SS.R7.989.00");
 			ci.m_packet_version = 2019110100; //2016121900;
+			ci.m_practice = m_practice_mode ? 1 : 0;
 
 			try {
 				ConnectAndAssoc("127.0.0.1", 10303, ci);
