@@ -2,7 +2,6 @@
 **/.git
 **/.gitignore
 docker/data
-**/*.bak
 **/*.o
 **/*.o.d
 **/output-*/

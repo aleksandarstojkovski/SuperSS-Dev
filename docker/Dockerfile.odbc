@@ -11,4 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY odbc.ini /etc/odbc.ini
+COPY docker/odbc.ini /etc/odbc.ini
+RUN mkdir -p \
+        "/opt/superss/Linux Builds/Login Server/data" \
+        "/opt/superss/Linux Builds/Game Server/data" \
+        "/opt/superss/Linux Builds/Rank Server/data"
+COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Login Server/data/pangya_jp.iff"
+COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Game Server/data/pangya_jp.iff"
+COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Rank Server/data/pangya_jp.iff"

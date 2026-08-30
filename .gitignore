@@ -234,6 +234,7 @@ UpgradeLog*.htm
 *.mdf
 *.ldf
 *.bak
+!docker/assets/pangya.bak
 docker/data/*
 !docker/data/.gitkeep
 

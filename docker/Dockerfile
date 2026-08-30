@@ -53,6 +53,9 @@ COPY --from=build /src/Server\ Lib/Linux\ Builds/Game\ Server ./Game Server
 COPY --from=build /src/Server\ Lib/Linux\ Builds/IFF\ Manager ./IFF Manager
 
 COPY docker/odbc.ini /etc/odbc.ini
+COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Login Server/data/pangya_jp.iff"
+COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Game Server/data/pangya_jp.iff"
+COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Rank Server/data/pangya_jp.iff"
 
 RUN for d in "Auth Server" "Login Server" "Message Server" "Rank Server" "Game Server" "IFF Manager"; do \
         mkdir -p "$d/Log" "$d/data"; \
