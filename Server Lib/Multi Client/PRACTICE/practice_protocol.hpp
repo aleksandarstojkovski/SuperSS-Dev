@@ -71,6 +71,8 @@ namespace stdA {
 	constexpr unsigned char ROOM_TIPO_PRACTICE = 19;
 	constexpr unsigned char SHOT_STATE_INTO_HOLE = 4;
 	constexpr uint32_t DISPLAY_ACERTO_HOLE = (1u << 8);
+	// packed sizeof(UserInfo) on Linux (pangya_game_st.h #pragma pack(1))
+	constexpr size_t USER_INFO_SIZE = 265;
 
 	using PracticeSendFn = std::function<void(packet&)>;
 

@@ -62,6 +62,7 @@ namespace stdA {
 			std::string m_error;
 			bool m_shot_sent;
 			bool m_item_sent;
+			bool m_finish_sent;
 	};
 }
 

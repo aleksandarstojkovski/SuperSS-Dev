@@ -8,8 +8,8 @@ namespace stdA {
 
 PracticeFsm::PracticeFsm(uint8_t holes, uint8_t course)
 	: m_state(State::Idle), m_holes(holes == 0 ? 3 : holes), m_course(course),
-	  m_holes_done(0), m_current_hole(0), m_oid(1), m_user_info_size(256),
-	  m_error(), m_shot_sent(false), m_item_sent(false) {
+	  m_holes_done(0), m_current_hole(0), m_oid(1), m_user_info_size(USER_INFO_SIZE),
+	  m_error(), m_shot_sent(false), m_item_sent(false), m_finish_sent(false) {
 	std::memset(m_room_key, 0x11, sizeof(m_room_key));
 }
 
@@ -196,11 +196,14 @@ void PracticeFsm::onServerPacket(unsigned short tipo, packet& p) {
 			break;
 		case 0x79:	// placar
 		case 0xCE:	// drop
-			if (m_state == State::Finishing || m_holes_done >= m_holes) {
+			if ((m_state == State::Finishing || m_holes_done >= m_holes) && !m_finish_sent) {
 				m_state = State::Finishing;
+				m_finish_sent = true;
 				sendFinishGame(m_send, m_user_info_size);
 				_smp::message_pool::getInstance().push(new message(
-					"[PracticeFsm] Finish game (0x06) sent", CL_FILE_LOG_AND_CONSOLE));
+					"[PracticeFsm] Finish game (0x06) sent size="
+						+ std::to_string(m_user_info_size),
+					CL_FILE_LOG_AND_CONSOLE));
 			}
 			break;
 		case 0xC8:	// pang update after finish_game
