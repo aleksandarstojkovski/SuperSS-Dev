@@ -5,13 +5,13 @@
 ;   ./Multi Client/practice_bot --real --config bot.ini
 ;   ./Multi Client/practice_bot --real --vs --config bot.ini
 ;   ./Multi Client/practice_bot --real --tourney --config bot.ini
-; Tourney always uses hardcoded test1..test4 / 123456 (created by docker/ensure_tourney_bots.sql).
+; The bot creates 4 official accounts (test1..test4 / 123456) on first login.
+; No [ACCOUNT] / --user / --pass is required.
 ;
 ; Write a fresh copy:
 ;   ./Multi Client/practice_bot --write-template bot.ini
 ;
 ; Keys in [DEFAULT] apply to any section that omits host.
-; Command-line --user / --pass / --guest-* override [ACCOUNT].
 
 [DEFAULT]
 host = 127.0.0.1
@@ -38,9 +38,3 @@ port = 30303
 [RANK]
 host = 127.0.0.1
 port = 4774
-
-[ACCOUNT]
-user = test
-pass = 123456
-guest_user = ciao
-guest_pass = 123456

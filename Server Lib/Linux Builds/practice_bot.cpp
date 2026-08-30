@@ -244,21 +244,22 @@ void apply_game_from_config(LoginCtx& ctx, const BotConfig& cfg) {
 
 void print_usage() {
 	std::cout
-		<< "practice_bot — SuperSS IOCP Practice / Versus client\n"
+		<< "practice_bot — SuperSS IOCP Practice / Versus / Tourney client\n"
 		<< "\n"
 		<< "Without --real or --config the bot stays on localhost loopback\n"
 		<< "(login 11030, game 12030) and does not touch the Docker stack.\n"
 		<< "\n"
+		<< "On --real the bot creates 4 official accounts (test1..test4 / 123456)\n"
+		<< "if they are missing (Login CREATEUSER + first-login nick/character).\n"
+		<< "No --user / --pass is required.\n"
+		<< "\n"
 		<< "  --real                 connect to official Login/Game (127.0.0.1 by default)\n"
-		<< "  --vs                   two-bot Versus (needs --real or --config)\n"
-		<< "  --tourney              4-bot Tourney tipo 4 (test1..test4 / 123456)\n"
-		<< "  --config, -c FILE      INI with LOGIN/GAME/AUTH/MESSAGE/RANK/ACCOUNT\n"
+		<< "                         Practice uses test1\n"
+		<< "  --vs                   two-bot Versus (test1 + test2; needs --real or --config)\n"
+		<< "  --tourney              4-bot Tourney tipo 4 (test1..test4)\n"
+		<< "  --config, -c FILE      INI with LOGIN/GAME/AUTH/MESSAGE/RANK\n"
 		<< "                         implies --real; omitted hosts use [DEFAULT] or 127.0.0.1\n"
 		<< "  --write-template [FILE] write a ready-to-edit bot.ini and exit\n"
-		<< "  --user NAME            override [ACCOUNT] user\n"
-		<< "  --pass PASS            override [ACCOUNT] pass\n"
-		<< "  --guest-user NAME      override [ACCOUNT] guest_user\n"
-		<< "  --guest-pass PASS      override [ACCOUNT] guest_pass\n"
 		<< "  --help, -h             this help\n"
 		<< "\n"
 		<< "Template: Multi Client/bot.ini.template\n";
@@ -626,7 +627,7 @@ int main(int argc, char** argv) {
 	ctx.user = "nat0";
 	ctx.pass = "123456";
 	LoginCtx guest_ctx;
-	guest_ctx.user = "ciao";
+	guest_ctx.user = "test2";
 	guest_ctx.pass = "123456";
 
 	for (int i = 1; i < argc; ++i) {
@@ -637,8 +638,10 @@ int main(int argc, char** argv) {
 			real = true;
 			login_port = 10303;
 			game_port = 20203;
-			ctx.user = "test";
+			ctx.user = "test1";
 			ctx.pass = "123456";
+			guest_ctx.user = "test2";
+			guest_ctx.pass = "123456";
 		} else if (a == "--vs") {
 			versus = true;
 		} else if (a == "--tourney" || a == "--torneo") {
@@ -705,9 +708,14 @@ int main(int argc, char** argv) {
 		if (!cfg.guest_pass.empty())
 			guest_ctx.pass = cfg.guest_pass;
 		if (ctx.user == "nat0") {
-			ctx.user = "test";
+			ctx.user = "test1";
 			if (cli_pass.empty() && cfg.pass.empty())
 				ctx.pass = "123456";
+		}
+		if (guest_ctx.user == "ciao" || guest_ctx.user.empty()) {
+			guest_ctx.user = "test2";
+			if (cli_guest_pass.empty() && cfg.guest_pass.empty())
+				guest_ctx.pass = "123456";
 		}
 		log_line("[practice_bot] config " + botConfigSummary(cfg));
 	}

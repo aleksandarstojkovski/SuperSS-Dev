@@ -45,13 +45,13 @@ namespace stdA {
 			";   ./Multi Client/practice_bot --real --config bot.ini\n"
 			";   ./Multi Client/practice_bot --real --vs --config bot.ini\n"
 			";   ./Multi Client/practice_bot --real --tourney --config bot.ini\n"
-			"; Tourney always uses hardcoded test1..test4 / 123456.\n"
+			"; The bot creates 4 official accounts (test1..test4 / 123456) on first login.\n"
+			"; No [ACCOUNT] / --user / --pass is required.\n"
 			";\n"
 			"; Write a fresh copy:\n"
 			";   ./Multi Client/practice_bot --write-template bot.ini\n"
 			";\n"
 			"; Keys in [DEFAULT] apply to any section that omits host.\n"
-			"; Command-line --user / --pass / --guest-* override [ACCOUNT].\n"
 			"\n"
 			"[DEFAULT]\n"
 			"host = 127.0.0.1\n"
@@ -77,13 +77,7 @@ namespace stdA {
 			"\n"
 			"[RANK]\n"
 			"host = 127.0.0.1\n"
-			"port = 4774\n"
-			"\n"
-			"[ACCOUNT]\n"
-			"user = test\n"
-			"pass = 123456\n"
-			"guest_user = ciao\n"
-			"guest_pass = 123456\n";
+			"port = 4774\n";
 	}
 
 	inline bool writeBotConfigTemplate(const std::string& path, std::string& err) {
