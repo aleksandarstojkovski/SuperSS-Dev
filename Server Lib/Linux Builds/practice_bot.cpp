@@ -93,6 +93,10 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 		log_line("[practice_bot] login " + tipo_hex(reply.getTipo()));
 		if (reply.getTipo() == 0x01) {
 			const int err = static_cast<unsigned char>(reply.readInt8());
+			if (err == 4) {
+				log_line("[practice_bot] already logged in; continue for SAME_ID_LOGIN");
+				continue;
+			}
 			if (err != 0) {
 				log_line("[practice_bot] login error=" + std::to_string(err));
 				return false;
@@ -138,7 +142,7 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 	return true;
 }
 
-bool enter_game(PracticeTcp& game, const LoginCtx& ctx) {
+bool enter_game(PracticeTcp& game, const LoginCtx& ctx, bool wait_login_done) {
 	packet hello;
 	if (!game.recv_server(hello) || hello.getTipo() != 0x3F) {
 		log_line("[practice_bot] game hello failed");
@@ -169,6 +173,14 @@ bool enter_game(PracticeTcp& game, const LoginCtx& ctx) {
 		return false;
 	}
 
+	// Official login_task keeps sending after 0x4D; wait for the last packet
+	// (0x1B1) so enter-channel/lobby do not race the cache load.
+	if (wait_login_done) {
+		packet done;
+		if (!recv_until(game, 0x1B1, done, 256))
+			log_line("[practice_bot] warning: no 0x1B1, entering channel anyway");
+	}
+
 	packet ch;
 	ch.init_plain(0x04);
 	ch.addInt8(0);
@@ -176,12 +188,16 @@ bool enter_game(PracticeTcp& game, const LoginCtx& ctx) {
 		return false;
 
 	packet ch_ok;
-	if (!recv_until(game, 0x4E, ch_ok, 16)) {
+	if (!recv_until(game, 0x4E, ch_ok, 64)) {
 		log_line("[practice_bot] missing channel enter 0x4E");
 		return false;
 	}
-	const int ch_err = ch_ok.readInt8();
-	log_line("[practice_bot] channel enter err=" + std::to_string(ch_err));
+	const int ch_opt = static_cast<unsigned char>(ch_ok.readInt8());
+	log_line("[practice_bot] channel enter opt=" + std::to_string(ch_opt));
+	if (ch_opt != 0 && ch_opt != 1) {
+		log_line("[practice_bot] channel enter failed");
+		return false;
+	}
 
 	packet lobby;
 	lobby.init_plain(0x81);
@@ -189,7 +205,7 @@ bool enter_game(PracticeTcp& game, const LoginCtx& ctx) {
 		return false;
 
 	packet lobby_ok;
-	if (!recv_until(game, 0xF5, lobby_ok, 16)) {
+	if (!recv_until(game, 0xF5, lobby_ok, 256)) {
 		log_line("[practice_bot] missing lobby 0xF5");
 		return false;
 	}
@@ -294,7 +310,7 @@ int main(int argc, char** argv) {
 				+ std::to_string(ctx.game_port));
 			return 2;
 		}
-		if (!enter_game(game, ctx))
+		if (!enter_game(game, ctx, true))
 			return 1;
 		const bool ok = play_practice(game, false, nullptr);
 		game.close();
@@ -323,7 +339,7 @@ int main(int argc, char** argv) {
 			loopback.stop();
 			return 1;
 		}
-		if (!enter_game(game, ctx)) {
+		if (!enter_game(game, ctx, false)) {
 			loopback.stop();
 			return 1;
 		}
