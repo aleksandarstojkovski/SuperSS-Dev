@@ -69,6 +69,9 @@ namespace stdA {
 					close();
 					return false;
 				}
+				timeval tv{};
+				tv.tv_sec = 15;
+				setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 				return true;
 #else
 				(void)host;

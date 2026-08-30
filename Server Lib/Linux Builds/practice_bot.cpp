@@ -1,5 +1,5 @@
-// Autonomous Practice 3-hole bot: talks to PracticeLoopback using the same
-// IOCP packet framing as Multi Client (make / unMakeFull).
+// Autonomous Practice 3-hole bot (loopback or real Login/Game Server).
+#include "../Projeto IOCP/TYPE/pangya_st.h"
 #include "../Projeto IOCP/UTIL/exception.h"
 #include "../Projeto IOCP/UTIL/message_pool.h"
 #include "../Multi Client/PRACTICE/practice_fsm.hpp"
@@ -7,6 +7,7 @@
 #include "../Multi Client/PRACTICE/practice_tcp.hpp"
 
 #include <chrono>
+#include <cstring>
 #include <exception>
 #include <iomanip>
 #include <iostream>
@@ -19,8 +20,7 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr const char* kLoginUser = "nat0";
-constexpr const char* kLoginPass = "123456";
+constexpr const char* kPacketVerKey = "{a65ec0d3-7bde-4ec1-8e73-4b3e0eac6abb}";
 
 void log_line(const std::string& text) {
 	std::cout << text << std::endl;
@@ -33,90 +33,138 @@ std::string tipo_hex(unsigned short tipo) {
 	return os.str();
 }
 
-bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
+int decrypt_packet_ver(int packet_ver) {
+	unsigned char* p = reinterpret_cast<unsigned char*>(&packet_ver);
+	size_t index = 0;
+	for (size_t i = 0; i < std::strlen(kPacketVerKey); ++i) {
+		p[index] ^= static_cast<unsigned char>(kPacketVerKey[i]);
+		index = (index == 3) ? 0 : index + 1;
+	}
+	return packet_ver;
+}
+
+bool recv_until(PracticeTcp& tcp, unsigned short want, packet& out, int max_pkts = 32) {
+	for (int i = 0; i < max_pkts; ++i) {
+		if (!tcp.recv_server(out))
+			return false;
+		log_line("[practice_bot] recv " + tipo_hex(out.getTipo()));
+		if (out.getTipo() == want)
+			return true;
+	}
+	return false;
+}
+
+struct LoginCtx {
+	std::string user;
+	std::string pass;
+	int32_t uid = 0;
+	int32_t game_uid = 20203;
+	std::string game_ip = "127.0.0.1";
+	uint16_t game_port = 20203;
+	std::string key_login;
+	std::string key_game;
+};
+
+bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 	packet first;
-	if (!login.recv_server(first)) {
-		log_line("[practice_bot] login hello recv failed");
+	if (!login.recv_server(first) || first.getTipo() != 0x00) {
+		log_line("[practice_bot] login hello failed");
 		return false;
 	}
-	if (first.getTipo() != 0x00) {
-		log_line("[practice_bot] login hello tipo=" + std::to_string(first.getTipo()));
+	login.setKey(static_cast<unsigned char>(first.readInt32() & 0xFF));
+	first.readInt32();
+
+	packet req;
+	req.init_plain(0x01);
+	req.addString(ctx.user);
+	req.addString(ctx.pass);
+	req.addInt8(2);
+	req.addInt64(0);
+	req.addInt64(0x7FFFFFFFFFFFFFFF);
+	req.addString("00-00-00-00-00-00");
+	if (!login.send_client(req))
 		return false;
-	}
 
-	const auto login_key = static_cast<unsigned char>(first.readInt32() & 0xFF);
-	first.readInt32();	// login server uid
-	login.setKey(login_key);
-
-	packet login_req;
-	login_req.init_plain(0x01);
-	login_req.addString(kLoginUser);
-	login_req.addString(kLoginPass);
-	login_req.addInt8(2);
-	login_req.addInt64(0);
-	login_req.addInt64(0x7FFFFFFFFFFFFFFF);
-	login_req.addString("00-00-00-00-00-00");
-	if (!login.send_client(login_req)) {
-		log_line("[practice_bot] login 0x01 send failed");
-		return false;
-	}
-
-	bool have_server_list = false;
-	for (int i = 0; i < 8 && !have_server_list; ++i) {
+	bool have_list = false;
+	for (int i = 0; i < 16 && !have_list; ++i) {
 		packet reply;
 		if (!login.recv_server(reply))
 			break;
-		log_line("[practice_bot] login reply " + tipo_hex(reply.getTipo()));
-		if (reply.getTipo() == 0x02)
-			have_server_list = true;
+		log_line("[practice_bot] login " + tipo_hex(reply.getTipo()));
+		if (reply.getTipo() == 0x01) {
+			const int err = static_cast<unsigned char>(reply.readInt8());
+			if (err != 0) {
+				log_line("[practice_bot] login error=" + std::to_string(err));
+				return false;
+			}
+			reply.readString();
+			ctx.uid = reply.readInt32();
+			log_line("[practice_bot] logged uid=" + std::to_string(ctx.uid));
+		} else if (reply.getTipo() == 0x02) {
+			const int n = reply.readInt8();
+			if (n > 0) {
+				ServerInfo si{};
+				reply.readBuffer(&si, sizeof(si));
+				ctx.game_uid = si.uid;
+				ctx.game_ip = si.ip;
+				ctx.game_port = static_cast<uint16_t>(si.port);
+				log_line("[practice_bot] game list " + ctx.game_ip + ":"
+					+ std::to_string(ctx.game_port) + " uid=" + std::to_string(ctx.game_uid));
+			}
+			have_list = true;
+		} else if (reply.getTipo() == 0x10) {
+			ctx.key_login = reply.readString();
+		}
 	}
+	if (!have_list)
+		return false;
+
+	packet ask;
+	ask.init_plain(0x03);
+	ask.addInt32(ctx.game_uid);
+	if (!login.send_client(ask))
+		return false;
+
+	packet key;
+	if (!recv_until(login, 0x03, key)) {
+		log_line("[practice_bot] missing auth key 0x03");
+		return false;
+	}
+	const int opt = key.readInt32();
+	if (opt == 0)
+		ctx.key_game = key.readString();
+	log_line("[practice_bot] auth key opt=" + std::to_string(opt) + " k=" + ctx.key_game);
 	login.close();
-	if (!have_server_list) {
-		log_line("[practice_bot] missing login server list 0x02");
-		return false;
-	}
+	return true;
+}
 
-	packet gfirst;
-	if (!game.recv_server(gfirst)) {
-		log_line("[practice_bot] game hello recv failed");
+bool enter_game(PracticeTcp& game, const LoginCtx& ctx) {
+	packet hello;
+	if (!game.recv_server(hello) || hello.getTipo() != 0x3F) {
+		log_line("[practice_bot] game hello failed");
 		return false;
 	}
-	if (gfirst.getTipo() != 0x3F) {
-		log_line("[practice_bot] game hello tipo=" + std::to_string(gfirst.getTipo()));
-		return false;
-	}
-	gfirst.readInt8();
-	gfirst.readInt8();
-	game.setKey(static_cast<unsigned char>(gfirst.readInt8()));
+	hello.readInt8();
+	hello.readInt8();
+	game.setKey(static_cast<unsigned char>(hello.readInt8()));
 
+	int packet_ver = decrypt_packet_ver(2019110100);
 	packet enter;
 	enter.init_plain(0x02);
-	enter.addString(kLoginUser);
-	enter.addInt32(10);
+	enter.addString(ctx.user);
+	enter.addInt32(ctx.uid);
 	enter.addInt32(0);
 	enter.addInt16(0x6696);
-	enter.addString("");
-	enter.addString("SS.R7.989.00");
-	enter.addInt32(2019110100);
+	enter.addString(ctx.key_login);
+	enter.addString("SS.R7.995.00");
+	enter.addInt32(packet_ver);
 	enter.addString("00-00-00-00-00-00");
-	enter.addString("");
-	if (!game.send_client(enter)) {
-		log_line("[practice_bot] game 0x02 send failed");
+	enter.addString(ctx.key_game);
+	if (!game.send_client(enter))
 		return false;
-	}
 
-	bool have_channels = false;
-	for (int i = 0; i < 16 && !have_channels; ++i) {
-		packet reply;
-		if (!game.recv_server(reply)) {
-			log_line("[practice_bot] game lobby recv failed");
-			return false;
-		}
-		log_line("[practice_bot] game reply " + tipo_hex(reply.getTipo()));
-		if (reply.getTipo() == 0x4D)
-			have_channels = true;
-	}
-	if (!have_channels) {
+	packet ch_list;
+	if (!recv_until(game, 0x4D, ch_list, 256)) {
 		log_line("[practice_bot] missing channel list 0x4D");
 		return false;
 	}
@@ -128,10 +176,12 @@ bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
 		return false;
 
 	packet ch_ok;
-	if (!game.recv_server(ch_ok) || ch_ok.getTipo() != 0x4E) {
+	if (!recv_until(game, 0x4E, ch_ok, 16)) {
 		log_line("[practice_bot] missing channel enter 0x4E");
 		return false;
 	}
+	const int ch_err = ch_ok.readInt8();
+	log_line("[practice_bot] channel enter err=" + std::to_string(ch_err));
 
 	packet lobby;
 	lobby.init_plain(0x81);
@@ -139,13 +189,41 @@ bool loginAndEnterGame(PracticeTcp& login, PracticeTcp& game) {
 		return false;
 
 	packet lobby_ok;
-	if (!game.recv_server(lobby_ok) || lobby_ok.getTipo() != 0xF5) {
+	if (!recv_until(game, 0xF5, lobby_ok, 16)) {
 		log_line("[practice_bot] missing lobby 0xF5");
 		return false;
 	}
-
 	log_line("[practice_bot] lobby entered");
 	return true;
+}
+
+bool play_practice(PracticeTcp& game, bool require_loopback, PracticeLoopback* loopback) {
+	PracticeFsm fsm;
+	fsm.setSend([&](packet& pkt) {
+		if (!game.send_client(pkt))
+			throw exception("[practice_bot] send failed", 1);
+	});
+	fsm.onLobbyEntered();
+
+	const auto deadline = std::chrono::steady_clock::now() + 180s;
+	while (!fsm.finished() && std::chrono::steady_clock::now() < deadline) {
+		packet inbound;
+		if (!game.recv_server(inbound)) {
+			log_line("[practice_bot] recv failed while fsm=" + fsm.stateName());
+			break;
+		}
+		log_line("[practice_bot] sv " + tipo_hex(inbound.getTipo()) + " fsm=" + fsm.stateName());
+		fsm.onServerPacket(inbound.getTipo(), inbound);
+	}
+
+	const bool ok = fsm.success() && fsm.holesCompleted() == 3
+		&& (!require_loopback || (loopback && loopback->gameFinished() && loopback->holesPlayed() == 3));
+
+	log_line(std::string("[practice_bot] result=") + (ok ? "PASS" : "FAIL")
+		+ " fsm=" + fsm.stateName()
+		+ " holes_fsm=" + std::to_string(fsm.holesCompleted())
+		+ (fsm.lastError().empty() ? "" : " err=" + fsm.lastError()));
+	return ok;
 }
 
 }  // namespace
@@ -165,15 +243,66 @@ int main(int argc, char** argv) {
 		std::_Exit(134);
 	});
 
+	bool real = false;
+	std::string host = "127.0.0.1";
 	uint16_t login_port = 11030;
 	uint16_t game_port = 12030;
-	if (argc >= 2)
-		login_port = static_cast<uint16_t>(std::stoi(argv[1]));
-	if (argc >= 3)
-		game_port = static_cast<uint16_t>(std::stoi(argv[2]));
+	LoginCtx ctx;
+	ctx.user = "nat0";
+	ctx.pass = "123456";
 
-	log_line("[practice_bot] Practice 3-hole autonomous test (loopback login="
-		+ std::to_string(login_port) + " game=" + std::to_string(game_port) + ")");
+	for (int i = 1; i < argc; ++i) {
+		const std::string a = argv[i];
+		if (a == "--real") {
+			real = true;
+			login_port = 10303;
+			game_port = 20203;
+			ctx.user = "test";
+			ctx.pass = "123456";
+		} else if (a == "--user" && i + 1 < argc) {
+			ctx.user = argv[++i];
+		} else if (a == "--pass" && i + 1 < argc) {
+			ctx.pass = argv[++i];
+		} else if (a.rfind("--", 0) != 0) {
+			if (login_port == 11030 || (real && login_port == 10303 && i == 1))
+				login_port = static_cast<uint16_t>(std::stoi(a));
+			else
+				game_port = static_cast<uint16_t>(std::stoi(a));
+		}
+	}
+
+	if (real) {
+		log_line("[practice_bot] REAL Practice 3-hole user=" + ctx.user
+			+ " login=" + host + ":" + std::to_string(login_port));
+
+		PracticeTcp login;
+		if (!login.connect_to(host, login_port)) {
+			log_line("[practice_bot] cannot connect login");
+			return 2;
+		}
+		if (!do_login(login, ctx))
+			return 1;
+
+		if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
+			ctx.game_ip = host;
+		if (ctx.game_port == 0)
+			ctx.game_port = game_port;
+
+		PracticeTcp game;
+		if (!game.connect_to(ctx.game_ip, ctx.game_port)) {
+			log_line("[practice_bot] cannot connect game " + ctx.game_ip + ":"
+				+ std::to_string(ctx.game_port));
+			return 2;
+		}
+		if (!enter_game(game, ctx))
+			return 1;
+		const bool ok = play_practice(game, false, nullptr);
+		game.close();
+		return ok ? 0 : 1;
+	}
+
+	log_line("[practice_bot] loopback Practice 3-hole login="
+		+ std::to_string(login_port) + " game=" + std::to_string(game_port));
 
 	PracticeLoopback loopback(login_port, game_port);
 	loopback.start();
@@ -187,54 +316,25 @@ int main(int argc, char** argv) {
 		return 2;
 	}
 
+	ctx.user = "nat0";
 	int rc = 1;
 	try {
-		if (!loginAndEnterGame(login, game)) {
+		if (!do_login(login, ctx)) {
 			loopback.stop();
 			return 1;
 		}
-
-		PracticeFsm fsm;
-		fsm.setSend([&](packet& pkt) {
-			if (!game.send_client(pkt))
-				throw exception("[practice_bot] send failed", 1);
-		});
-		fsm.onLobbyEntered();
-
-		const auto deadline = std::chrono::steady_clock::now() + 20s;
-		while (!fsm.finished() && std::chrono::steady_clock::now() < deadline) {
-			packet inbound;
-			if (!game.recv_server(inbound)) {
-				log_line("[practice_bot] recv failed while fsm=" + fsm.stateName());
-				break;
-			}
-			log_line("[practice_bot] sv " + tipo_hex(inbound.getTipo())
-				+ " fsm=" + fsm.stateName());
-			fsm.onServerPacket(inbound.getTipo(), inbound);
+		if (!enter_game(game, ctx)) {
+			loopback.stop();
+			return 1;
 		}
-
+		rc = play_practice(game, true, &loopback) ? 0 : 1;
 		game.close();
 		loopback.stop();
-
-		const bool ok = fsm.success()
-			&& loopback.gameFinished()
-			&& loopback.holesPlayed() == 3;
-
-		log_line(std::string("[practice_bot] result=") + (ok ? "PASS" : "FAIL")
-			+ " fsm=" + fsm.stateName()
-			+ " holes_fsm=" + std::to_string(fsm.holesCompleted())
-			+ " holes_sv=" + std::to_string(loopback.holesPlayed())
-			+ " finished=" + (loopback.gameFinished() ? "1" : "0")
-			+ " last=" + loopback.lastEvent()
-			+ (fsm.lastError().empty() ? "" : " err=" + fsm.lastError()));
-
-		rc = ok ? 0 : 1;
 	} catch (exception& e) {
 		log_line("[practice_bot] exception: " + e.getFullMessageError());
 		game.close();
 		loopback.stop();
 		rc = 1;
 	}
-
 	return rc;
 }

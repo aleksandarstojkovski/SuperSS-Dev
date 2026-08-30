@@ -1,0 +1,75 @@
+# Real SuperSS stack: existing pangya-mssql on host :1433 + ODBC-enabled servers.
+services:
+  auth:
+    image: superss-odbc:latest
+    working_dir: /opt/superss/Linux Builds/Auth Server
+    command: ["./auth"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./docker/server-auth.ini:/opt/superss/Linux Builds/Auth Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Auth Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+    ports:
+      - "7777:7777"
+
+  login:
+    image: superss-odbc:latest
+    working_dir: /opt/superss/Linux Builds/Login Server
+    command: ["./login"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - auth
+    volumes:
+      - ./docker/server-login.ini:/opt/superss/Linux Builds/Login Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Login Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+      - ./Server Lib/Linux Builds/Game Server/data/pangya_jp.iff:/opt/superss/Linux Builds/Login Server/data/pangya_jp.iff:ro
+    ports:
+      - "10303:10303"
+
+  message:
+    image: superss-odbc:latest
+    working_dir: /opt/superss/Linux Builds/Message Server
+    command: ["./msn"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - auth
+    volumes:
+      - ./docker/server-message.ini:/opt/superss/Linux Builds/Message Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Message Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+    ports:
+      - "30303:30303"
+
+  rank:
+    image: superss-odbc:latest
+    working_dir: /opt/superss/Linux Builds/Rank Server
+    command: ["./rank"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./docker/server-rank.ini:/opt/superss/Linux Builds/Rank Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Rank Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+    ports:
+      - "4774:4774"
+
+  game:
+    image: superss-odbc:latest
+    working_dir: /opt/superss/Linux Builds/Game Server
+    command: ["./game"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - auth
+      - login
+    volumes:
+      - ./docker/server-game.ini:/opt/superss/Linux Builds/Game Server/server.ini:ro
+      - ./docker/socket_config.ini:/opt/superss/Linux Builds/Game Server/config/socket_config.ini:ro
+      - ./docker/odbc.ini:/etc/odbc.ini:ro
+      - ./Server Lib/Linux Builds/Game Server/data/pangya_jp.iff:/opt/superss/Linux Builds/Game Server/data/pangya_jp.iff:ro
+    ports:
+      - "20203:20203"
