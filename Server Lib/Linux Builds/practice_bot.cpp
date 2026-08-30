@@ -505,7 +505,7 @@ bool play_tourney_one(PracticeTcp& game, TourneyFsm::Role role, TourneyShared& s
 	game.setRecvTimeout(2);
 	fsm.onLobbyEntered();
 
-	const auto deadline = std::chrono::steady_clock::now() + 180s;
+	const auto deadline = std::chrono::steady_clock::now() + 240s;
 	while (!fsm.finished() && std::chrono::steady_clock::now() < deadline) {
 		fsm.tick();
 		packet inbound;

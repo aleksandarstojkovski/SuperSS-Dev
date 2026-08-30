@@ -286,8 +286,17 @@ void TourneyFsm::onServerPacket(unsigned short tipo, packet& p) {
 				oid = static_cast<uint32_t>(p.readInt32());
 			if (m_oid_resolved && oid != m_oid)
 				break;
-			if (m_state != State::PlayingHole && m_state != State::WaitingHoleResult)
+			// A second 0x6D for the same hole arrives after beginHole()
+			// already moved us to PlayingHole — ignore it or we skip a hole.
+			if (m_state != State::WaitingHoleResult && m_state != State::Finishing)
 				break;
+			if (m_state == State::Finishing) {
+				if (!m_hole_data_sent) {
+					m_hole_data_sent = true;
+					sendFinishHoleData(m_send, m_user_info_size);
+				}
+				break;
+			}
 			if (!m_hole_data_sent) {
 				m_hole_data_sent = true;
 				sendFinishHoleData(m_send, m_user_info_size);
@@ -306,6 +315,13 @@ void TourneyFsm::onServerPacket(unsigned short tipo, packet& p) {
 			break;
 		}
 		case 0x199:
+			// Sent only to the player who holed-out the last hole.
+			if (m_holes_done < m_holes)
+				m_holes_done = m_holes;
+			if (!m_hole_data_sent) {
+				m_hole_data_sent = true;
+				sendFinishHoleData(m_send, m_user_info_size);
+			}
 			m_state = State::Finishing;
 			break;
 		case 0x79:
