@@ -29,7 +29,7 @@ void VersusFsm::setRoomKey(const unsigned char key[16]) {
 
 void VersusFsm::setOid(uint32_t oid) {
 	m_oid = oid;
-	m_oid_resolved = oid != 0;
+	m_oid_resolved = true;
 }
 
 void VersusFsm::setIdentity(const std::string& name, uint32_t uid) {
