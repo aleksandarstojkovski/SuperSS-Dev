@@ -90,13 +90,16 @@ void TourneyFsm::onLobbyEntered() {
 void TourneyFsm::maybeStartAsHost() {
 	if (m_role != Role::Host || m_state != State::WaitingGuest)
 		return;
-	if (m_shared.guests_ready.load() < m_shared.expected_guests)
-		return;
-	if (m_shared.ready_pkts.load() < 1 && !m_saw_guest_ready_pkt)
+	// Wait for the server 0x78 ready broadcasts, not the guests' local
+	// send count. A guest increments guests_ready when it sends 0x0D,
+	// which can race the host into start before isAllReady() is true.
+	if (m_shared.ready_pkts.load() < m_shared.expected_guests)
 		return;
 	m_state = State::Starting;
 	_smp::message_pool::getInstance().push(new message(
-		"[TourneyFsm][host] Guest ready, starting Tourney", CL_FILE_LOG_AND_CONSOLE));
+		"[TourneyFsm][host] All guests ready (0x78="
+			+ std::to_string(m_shared.ready_pkts.load()) + "), starting Tourney",
+		CL_FILE_LOG_AND_CONSOLE));
 	sendStartGame(m_send);
 }
 
