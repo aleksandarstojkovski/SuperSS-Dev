@@ -12,10 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/odbc.ini /etc/odbc.ini
+COPY docker/assets/pangya_jp.iff /tmp/pangya_jp.iff
 RUN mkdir -p \
         "/opt/superss/Linux Builds/Login Server/data" \
         "/opt/superss/Linux Builds/Game Server/data" \
-        "/opt/superss/Linux Builds/Rank Server/data"
-COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Login Server/data/pangya_jp.iff"
-COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Game Server/data/pangya_jp.iff"
-COPY docker/assets/pangya_jp.iff "/opt/superss/Linux Builds/Rank Server/data/pangya_jp.iff"
+        "/opt/superss/Linux Builds/Rank Server/data" \
+    && cp /tmp/pangya_jp.iff "/opt/superss/Linux Builds/Login Server/data/pangya_jp.iff" \
+    && cp /tmp/pangya_jp.iff "/opt/superss/Linux Builds/Game Server/data/pangya_jp.iff" \
+    && cp /tmp/pangya_jp.iff "/opt/superss/Linux Builds/Rank Server/data/pangya_jp.iff" \
+    && rm -f /tmp/pangya_jp.iff
