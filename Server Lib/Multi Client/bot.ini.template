@@ -4,6 +4,7 @@
 ; Copy this file and pass it to the bot:
 ;   ./Multi Client/practice_bot --real --config bot.ini
 ;   ./Multi Client/practice_bot --real --vs --config bot.ini
+;   ./Multi Client/practice_bot --real --tourney --config bot.ini
 ;
 ; Write a fresh copy:
 ;   ./Multi Client/practice_bot --write-template bot.ini

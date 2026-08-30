@@ -8,6 +8,7 @@
 #include "../Multi Client/PRACTICE/bot_config.hpp"
 #include "../Multi Client/PRACTICE/practice_loopback.hpp"
 #include "../Multi Client/PRACTICE/practice_tcp.hpp"
+#include "../Multi Client/PRACTICE/tourney_fsm.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -196,6 +197,7 @@ void print_usage() {
 		<< "\n"
 		<< "  --real                 connect to official Login/Game (127.0.0.1 by default)\n"
 		<< "  --vs                   two-bot Versus (needs --real or --config)\n"
+		<< "  --tourney              two-bot Tourney tipo 4 (needs --real or --config)\n"
 		<< "  --config, -c FILE      INI with LOGIN/GAME/AUTH/MESSAGE/RANK/ACCOUNT\n"
 		<< "                         implies --real; omitted hosts use [DEFAULT] or 127.0.0.1\n"
 		<< "  --write-template [FILE] write a ready-to-edit bot.ini and exit\n"
@@ -438,6 +440,111 @@ int run_real_versus(const std::string& host, uint16_t login_port,
 	return ok ? 0 : 1;
 }
 
+bool play_tourney_one(PracticeTcp& game, TourneyFsm::Role role, TourneyShared& shared,
+		const std::string& tag, const std::string& user, uint32_t uid) {
+	TourneyFsm fsm(role, shared);
+	fsm.setIdentity(user, uid);
+	fsm.setSend([&](packet& pkt) {
+		if (!game.send_client(pkt))
+			throw exception("[practice_bot] send failed", 1);
+	});
+	game.setRecvTimeout(2);
+	fsm.onLobbyEntered();
+
+	const auto deadline = std::chrono::steady_clock::now() + 180s;
+	while (!fsm.finished() && std::chrono::steady_clock::now() < deadline) {
+		fsm.tick();
+		packet inbound;
+		if (!game.recv_server(inbound)) {
+			if (fsm.finished())
+				break;
+			fsm.tick();
+			continue;
+		}
+		log_line(std::string("[practice_bot][") + tag + "] sv " + tipo_hex(inbound.getTipo())
+			+ " fsm=" + fsm.stateName()
+			+ " oid=" + std::to_string(fsm.oid())
+			+ (fsm.oidResolved() ? "" : " (unresolved)"));
+		fsm.onServerPacket(inbound.getTipo(), inbound);
+		fsm.tick();
+	}
+
+	const bool ok = fsm.success() && fsm.holesCompleted() >= 3;
+	log_line(std::string("[practice_bot][") + tag + "] result=" + (ok ? "PASS" : "FAIL")
+		+ " fsm=" + fsm.stateName()
+		+ " holes=" + std::to_string(fsm.holesCompleted())
+		+ " oid=" + std::to_string(fsm.oid())
+		+ (fsm.lastError().empty() ? "" : " err=" + fsm.lastError()));
+	return ok;
+}
+
+int run_real_tourney(const std::string& host, uint16_t login_port,
+		const LoginCtx& host_in, const LoginCtx& guest_in, const BotConfig& cfg) {
+	TourneyShared shared;
+	std::atomic<bool> host_ok{false};
+	std::atomic<bool> guest_ok{false};
+
+	std::thread host_th([&]() {
+		try {
+			LoginCtx ctx = host_in;
+			PracticeTcp login;
+			if (!login.connect_to(host, login_port) || !do_login(login, ctx)) {
+				log_line("[practice_bot][host] login failed");
+				return;
+			}
+			apply_game_from_config(ctx, cfg);
+			if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
+				ctx.game_ip = host;
+			PracticeTcp game;
+			if (!game.connect_to(ctx.game_ip, ctx.game_port) || !enter_game(game, ctx, true)) {
+				log_line("[practice_bot][host] game enter failed");
+				return;
+			}
+			host_ok = play_tourney_one(game, TourneyFsm::Role::Host, shared, "host",
+				ctx.nickname.empty() ? ctx.user : ctx.nickname,
+				static_cast<uint32_t>(ctx.uid));
+			game.close();
+		} catch (exception& e) {
+			log_line("[practice_bot][host] exception: " + e.getFullMessageError());
+		}
+	});
+
+	std::thread guest_th([&]() {
+		try {
+			std::this_thread::sleep_for(400ms);
+			LoginCtx ctx = guest_in;
+			PracticeTcp login;
+			if (!login.connect_to(host, login_port) || !do_login(login, ctx)) {
+				log_line("[practice_bot][guest] login failed");
+				return;
+			}
+			apply_game_from_config(ctx, cfg);
+			if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
+				ctx.game_ip = host;
+			PracticeTcp game;
+			if (!game.connect_to(ctx.game_ip, ctx.game_port) || !enter_game(game, ctx, true)) {
+				log_line("[practice_bot][guest] game enter failed");
+				return;
+			}
+			guest_ok = play_tourney_one(game, TourneyFsm::Role::Guest, shared, "guest",
+				ctx.nickname.empty() ? ctx.user : ctx.nickname,
+				static_cast<uint32_t>(ctx.uid));
+			game.close();
+		} catch (exception& e) {
+			log_line("[practice_bot][guest] exception: " + e.getFullMessageError());
+		}
+	});
+
+	host_th.join();
+	guest_th.join();
+
+	const bool ok = host_ok && guest_ok;
+	log_line(std::string("[practice_bot] Tourney two-bot result=") + (ok ? "PASS" : "FAIL")
+		+ " host=" + (host_ok ? "PASS" : "FAIL")
+		+ " guest=" + (guest_ok ? "PASS" : "FAIL"));
+	return ok ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -457,6 +564,7 @@ int main(int argc, char** argv) {
 
 	bool real = false;
 	bool versus = false;
+	bool tourney = false;
 	bool show_help = false;
 	std::string host = "127.0.0.1";
 	uint16_t login_port = 11030;
@@ -486,6 +594,8 @@ int main(int argc, char** argv) {
 			ctx.pass = "123456";
 		} else if (a == "--vs") {
 			versus = true;
+		} else if (a == "--tourney" || a == "--torneo") {
+			tourney = true;
 		} else if (a == "--config" || a == "-c") {
 			if (i + 1 >= argc) {
 				std::cerr << "[practice_bot] --config needs a file path" << std::endl;
@@ -564,9 +674,20 @@ int main(int argc, char** argv) {
 	if (!cli_guest_pass.empty())
 		guest_ctx.pass = cli_guest_pass;
 
-	if (versus && !real) {
-		log_line("[practice_bot] --vs needs --real or --config");
+	if ((versus || tourney) && !real) {
+		log_line("[practice_bot] --vs / --tourney needs --real or --config");
 		return 2;
+	}
+	if (versus && tourney) {
+		log_line("[practice_bot] pick one of --vs or --tourney");
+		return 2;
+	}
+
+	if (real && tourney) {
+		log_line("[practice_bot] REAL Tourney 3-hole host=" + ctx.user
+			+ " guest=" + guest_ctx.user
+			+ " login=" + host + ":" + std::to_string(login_port));
+		return run_real_tourney(host, login_port, ctx, guest_ctx, cfg);
 	}
 
 	if (real && versus) {

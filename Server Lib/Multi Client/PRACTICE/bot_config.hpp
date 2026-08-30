@@ -44,6 +44,7 @@ namespace stdA {
 			"; Copy this file and pass it to the bot:\n"
 			";   ./Multi Client/practice_bot --real --config bot.ini\n"
 			";   ./Multi Client/practice_bot --real --vs --config bot.ini\n"
+			";   ./Multi Client/practice_bot --real --tourney --config bot.ini\n"
 			";\n"
 			"; Write a fresh copy:\n"
 			";   ./Multi Client/practice_bot --write-template bot.ini\n"
