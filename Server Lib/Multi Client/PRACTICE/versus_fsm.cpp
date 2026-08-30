@@ -2,7 +2,9 @@
 
 #include "../../Projeto IOCP/UTIL/message_pool.h"
 
+#include <chrono>
 #include <cstring>
+#include <thread>
 
 namespace stdA {
 
@@ -142,8 +144,13 @@ void VersusFsm::shootIfMyTurn(uint32_t turn_oid) {
 		std::string("[VersusFsm][") + roleName() + "] My turn oid="
 			+ std::to_string(m_oid) + " hole=" + std::to_string(m_current_hole),
 		CL_FILE_LOG_AND_CONSOLE));
+	// Official clients send 0x22 (start turn timer) and wait for the
+	// Game Server to enter WAIT_HIT_SHOT before 0x12. Sending both in one
+	// burst lets the thread pool process 0x12 first; then 0x22 resets
+	// VersusBase to WAIT_HIT_SHOT and checkVersusTurn never changeTurn().
 	sendStartTurnTime(m_send);
-	sendHoleOutShot(m_send, m_oid, m_room_key);
+	std::this_thread::sleep_for(std::chrono::milliseconds(150));
+	sendInitShot(m_send);
 }
 
 // PlayerRoomInfo (pack 1): oid@0, nickname@4[22], uid@108.

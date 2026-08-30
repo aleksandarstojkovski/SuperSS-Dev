@@ -312,6 +312,7 @@ bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shar
 			+ " oid=" + std::to_string(fsm.oid())
 			+ (fsm.oidResolved() ? "" : " (unresolved)"));
 		fsm.onServerPacket(inbound.getTipo(), inbound);
+		fsm.tick();
 		if (inbound.getTipo() == 0x48)
 			log_line(std::string("[practice_bot][") + tag + "] after 0x48 oid="
 				+ std::to_string(fsm.oid()) + " resolved="

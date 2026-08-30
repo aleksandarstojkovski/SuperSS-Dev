@@ -169,7 +169,7 @@ namespace stdA {
 		send(finish);
 	}
 
-	inline void sendHoleOutShot(const PracticeSendFn& send, uint32_t oid, const unsigned char room_key[16]) {
+	inline void sendInitShot(const PracticeSendFn& send) {
 		PracticeShotData sd{};
 		sd.club = 13;	// putter-ish
 		sd.bar_point[0] = 1.f;
@@ -186,7 +186,10 @@ namespace stdA {
 		arrows.addUint8(1);
 		arrows.addUint32(1);	// one arrow (up)
 		send(arrows);
+	}
 
+	inline void sendHoleOutShot(const PracticeSendFn& send, uint32_t oid, const unsigned char room_key[16]) {
+		sendInitShot(send);
 		sendShotSync(send, oid, room_key);
 	}
 
