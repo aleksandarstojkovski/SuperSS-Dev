@@ -5,9 +5,11 @@
 #include "../Projeto IOCP/UTIL/hex_util.h"
 #include "../Multi Client/PRACTICE/practice_fsm.hpp"
 #include "../Multi Client/PRACTICE/versus_fsm.hpp"
+#include "../Multi Client/PRACTICE/bot_config.hpp"
 #include "../Multi Client/PRACTICE/practice_loopback.hpp"
 #include "../Multi Client/PRACTICE/practice_tcp.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <exception>
@@ -170,6 +172,42 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 	return true;
 }
 
+void apply_game_from_config(LoginCtx& ctx, const BotConfig& cfg) {
+	if (!cfg.loaded)
+		return;
+	if (cfg.game.override_list) {
+		ctx.game_ip = cfg.game.host;
+		ctx.game_port = cfg.game.port;
+		log_line("[practice_bot] GAME override " + ctx.game_ip + ":"
+			+ std::to_string(ctx.game_port));
+	} else if (ctx.game_ip.empty() || ctx.game_ip[0] == 0) {
+		ctx.game_ip = !cfg.game.host.empty() ? cfg.game.host : cfg.login.host;
+		if (ctx.game_port == 0)
+			ctx.game_port = cfg.game.port;
+	}
+}
+
+void print_usage() {
+	std::cout
+		<< "practice_bot — SuperSS IOCP Practice / Versus client\n"
+		<< "\n"
+		<< "Without --real or --config the bot stays on localhost loopback\n"
+		<< "(login 11030, game 12030) and does not touch the Docker stack.\n"
+		<< "\n"
+		<< "  --real                 connect to official Login/Game (127.0.0.1 by default)\n"
+		<< "  --vs                   two-bot Versus (needs --real or --config)\n"
+		<< "  --config, -c FILE      INI with LOGIN/GAME/AUTH/MESSAGE/RANK/ACCOUNT\n"
+		<< "                         implies --real; omitted hosts use [DEFAULT] or 127.0.0.1\n"
+		<< "  --write-template [FILE] write a ready-to-edit bot.ini and exit\n"
+		<< "  --user NAME            override [ACCOUNT] user\n"
+		<< "  --pass PASS            override [ACCOUNT] pass\n"
+		<< "  --guest-user NAME      override [ACCOUNT] guest_user\n"
+		<< "  --guest-pass PASS      override [ACCOUNT] guest_pass\n"
+		<< "  --help, -h             this help\n"
+		<< "\n"
+		<< "Template: Multi Client/bot.ini.template\n";
+}
+
 bool enter_game(PracticeTcp& game, const LoginCtx& ctx, bool wait_login_done) {
 	packet hello;
 	if (!game.recv_server(hello) || hello.getTipo() != 0x3F) {
@@ -330,7 +368,7 @@ bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shar
 }
 
 int run_real_versus(const std::string& host, uint16_t login_port,
-		const LoginCtx& host_in, const LoginCtx& guest_in) {
+		const LoginCtx& host_in, const LoginCtx& guest_in, const BotConfig& cfg) {
 	VersusShared shared;
 	std::atomic<bool> host_ok{false};
 	std::atomic<bool> guest_ok{false};
@@ -345,6 +383,7 @@ int run_real_versus(const std::string& host, uint16_t login_port,
 				log_line("[practice_bot][host] login failed");
 				return;
 			}
+			apply_game_from_config(ctx, cfg);
 			if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
 				ctx.game_ip = host;
 			PracticeTcp game;
@@ -371,6 +410,7 @@ int run_real_versus(const std::string& host, uint16_t login_port,
 				log_line("[practice_bot][guest] login failed");
 				return;
 			}
+			apply_game_from_config(ctx, cfg);
 			if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
 				ctx.game_ip = host;
 			PracticeTcp game;
@@ -417,9 +457,16 @@ int main(int argc, char** argv) {
 
 	bool real = false;
 	bool versus = false;
+	bool show_help = false;
 	std::string host = "127.0.0.1";
 	uint16_t login_port = 11030;
 	uint16_t game_port = 12030;
+	std::string config_path;
+	std::string write_template_path;
+	std::string cli_user;
+	std::string cli_pass;
+	std::string cli_guest_user;
+	std::string cli_guest_pass;
 	LoginCtx ctx;
 	ctx.user = "nat0";
 	ctx.pass = "123456";
@@ -429,7 +476,9 @@ int main(int argc, char** argv) {
 
 	for (int i = 1; i < argc; ++i) {
 		const std::string a = argv[i];
-		if (a == "--real") {
+		if (a == "--help" || a == "-h") {
+			show_help = true;
+		} else if (a == "--real") {
 			real = true;
 			login_port = 10303;
 			game_port = 20203;
@@ -437,15 +486,26 @@ int main(int argc, char** argv) {
 			ctx.pass = "123456";
 		} else if (a == "--vs") {
 			versus = true;
+		} else if (a == "--config" || a == "-c") {
+			if (i + 1 >= argc) {
+				std::cerr << "[practice_bot] --config needs a file path" << std::endl;
+				return 2;
+			}
+			config_path = argv[++i];
+		} else if (a == "--write-template") {
+			if (i + 1 < argc && argv[i + 1][0] != '-')
+				write_template_path = argv[++i];
+			else
+				write_template_path = "bot.ini";
 		} else if (a == "--user" && i + 1 < argc) {
-			ctx.user = argv[++i];
+			cli_user = argv[++i];
 		} else if (a == "--pass" && i + 1 < argc) {
-			ctx.pass = argv[++i];
+			cli_pass = argv[++i];
 		} else if (a == "--guest-user" && i + 1 < argc) {
-			guest_ctx.user = argv[++i];
+			cli_guest_user = argv[++i];
 		} else if (a == "--guest-pass" && i + 1 < argc) {
-			guest_ctx.pass = argv[++i];
-		} else if (a.rfind("--", 0) != 0) {
+			cli_guest_pass = argv[++i];
+		} else if (a.rfind("--", 0) != 0 && config_path.empty()) {
 			if (login_port == 11030 || (real && login_port == 10303 && i == 1))
 				login_port = static_cast<uint16_t>(std::stoi(a));
 			else
@@ -453,25 +513,84 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	if (show_help) {
+		print_usage();
+		return 0;
+	}
+
+	if (!write_template_path.empty()) {
+		std::string err;
+		if (!writeBotConfigTemplate(write_template_path, err)) {
+			std::cerr << "[practice_bot] " << err << std::endl;
+			return 2;
+		}
+		std::cout << "[practice_bot] wrote template " << write_template_path << std::endl;
+		return 0;
+	}
+
+	BotConfig cfg;
+	if (!config_path.empty()) {
+		std::string err;
+		if (!loadBotConfig(config_path, cfg, err)) {
+			log_line("[practice_bot] config: " + err);
+			return 2;
+		}
+		real = true;
+		host = cfg.login.host;
+		login_port = cfg.login.port;
+		game_port = cfg.game.port;
+		if (!cfg.user.empty())
+			ctx.user = cfg.user;
+		if (!cfg.pass.empty())
+			ctx.pass = cfg.pass;
+		if (!cfg.guest_user.empty())
+			guest_ctx.user = cfg.guest_user;
+		if (!cfg.guest_pass.empty())
+			guest_ctx.pass = cfg.guest_pass;
+		if (ctx.user == "nat0") {
+			ctx.user = "test";
+			if (cli_pass.empty() && cfg.pass.empty())
+				ctx.pass = "123456";
+		}
+		log_line("[practice_bot] config " + botConfigSummary(cfg));
+	}
+
+	if (!cli_user.empty())
+		ctx.user = cli_user;
+	if (!cli_pass.empty())
+		ctx.pass = cli_pass;
+	if (!cli_guest_user.empty())
+		guest_ctx.user = cli_guest_user;
+	if (!cli_guest_pass.empty())
+		guest_ctx.pass = cli_guest_pass;
+
+	if (versus && !real) {
+		log_line("[practice_bot] --vs needs --real or --config");
+		return 2;
+	}
+
 	if (real && versus) {
 		log_line("[practice_bot] REAL VS 3-hole host=" + ctx.user
 			+ " guest=" + guest_ctx.user
 			+ " login=" + host + ":" + std::to_string(login_port));
-		return run_real_versus(host, login_port, ctx, guest_ctx);
+		return run_real_versus(host, login_port, ctx, guest_ctx, cfg);
 	}
 
 	if (real) {
 		log_line("[practice_bot] REAL Practice 3-hole user=" + ctx.user
-			+ " login=" + host + ":" + std::to_string(login_port));
+			+ " login=" + host + ":" + std::to_string(login_port)
+			+ " game=" + std::to_string(game_port));
 
 		PracticeTcp login;
 		if (!login.connect_to(host, login_port)) {
-			log_line("[practice_bot] cannot connect login");
+			log_line("[practice_bot] cannot connect login " + host + ":"
+				+ std::to_string(login_port));
 			return 2;
 		}
 		if (!do_login(login, ctx))
 			return 1;
 
+		apply_game_from_config(ctx, cfg);
 		if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
 			ctx.game_ip = host;
 		if (ctx.game_port == 0)

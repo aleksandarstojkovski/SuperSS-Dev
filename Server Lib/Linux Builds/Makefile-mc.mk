@@ -76,6 +76,7 @@ $(BUILD_FOLDER)/$(PROGRAM): $(OBJ_FILES)
 	@mkdir -p $(DIRSAVEPRROGRAM)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(OUT_OBJECTS) $(LDLIBS) -o $@
 	cp $(BUILD_FOLDER)/$(PROGRAM) $(DIRSAVEPRROGRAM)/$(PROGRAM)
+	cp ../Multi\ Client/bot.ini.template $(DIRSAVEPRROGRAM)/bot.ini.template
 
 $(BUILD_FOLDER):
 	@mkdir -p $@

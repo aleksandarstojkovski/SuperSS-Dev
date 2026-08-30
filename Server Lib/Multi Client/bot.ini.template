@@ -1,0 +1,44 @@
+; SuperSS IOCP bot endpoints.
+; Default is localhost and the official Docker / server.ini ports.
+;
+; Copy this file and pass it to the bot:
+;   ./Multi Client/practice_bot --real --config bot.ini
+;   ./Multi Client/practice_bot --real --vs --config bot.ini
+;
+; Write a fresh copy:
+;   ./Multi Client/practice_bot --write-template bot.ini
+;
+; Keys in [DEFAULT] apply to any section that omits host.
+; Command-line --user / --pass / --guest-* override [ACCOUNT].
+
+[DEFAULT]
+host = 127.0.0.1
+
+[LOGIN]
+host = 127.0.0.1
+port = 10303
+
+[GAME]
+host = 127.0.0.1
+port = 20203
+; 1 = connect here even if Login Server lists another IP (needed when
+; the Game Server advertises 127.0.0.1 but the bot is on another host)
+override = 1
+
+[AUTH]
+host = 127.0.0.1
+port = 7777
+
+[MESSAGE]
+host = 127.0.0.1
+port = 30303
+
+[RANK]
+host = 127.0.0.1
+port = 4774
+
+[ACCOUNT]
+user = test
+pass = 123456
+guest_user = ciao
+guest_pass = 123456
