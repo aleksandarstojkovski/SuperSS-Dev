@@ -31,6 +31,18 @@ namespace stdA {
 			PracticeTcp(const PracticeTcp&) = delete;
 			PracticeTcp& operator=(const PracticeTcp&) = delete;
 
+			void setRecvTimeout(int seconds) {
+#if defined(__linux__)
+				if (m_fd < 0)
+					return;
+				timeval tv{};
+				tv.tv_sec = seconds;
+				setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#else
+				(void)seconds;
+#endif
+			}
+
 			void setKey(unsigned char key) { m_key = key; }
 			unsigned char key() const { return m_key; }
 			int fd() const { return m_fd; }

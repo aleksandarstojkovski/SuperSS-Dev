@@ -3,6 +3,7 @@
 #include "../Projeto IOCP/UTIL/exception.h"
 #include "../Projeto IOCP/UTIL/message_pool.h"
 #include "../Multi Client/PRACTICE/practice_fsm.hpp"
+#include "../Multi Client/PRACTICE/versus_fsm.hpp"
 #include "../Multi Client/PRACTICE/practice_loopback.hpp"
 #include "../Multi Client/PRACTICE/practice_tcp.hpp"
 
@@ -11,6 +12,7 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -22,7 +24,10 @@ namespace {
 
 constexpr const char* kPacketVerKey = "{a65ec0d3-7bde-4ec1-8e73-4b3e0eac6abb}";
 
+std::mutex g_log_mu;
+
 void log_line(const std::string& text) {
+	std::lock_guard<std::mutex> lock(g_log_mu);
 	std::cout << text << std::endl;
 	_smp::message_pool::getInstance().push(new message(text, CL_FILE_LOG_AND_CONSOLE));
 }
@@ -242,6 +247,103 @@ bool play_practice(PracticeTcp& game, bool require_loopback, PracticeLoopback* l
 	return ok;
 }
 
+bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shared, const std::string& tag) {
+	VersusFsm fsm(role, shared);
+	fsm.setSend([&](packet& pkt) {
+		if (!game.send_client(pkt))
+			throw exception("[practice_bot] send failed", 1);
+	});
+	game.setRecvTimeout(2);
+	fsm.onLobbyEntered();
+
+	const auto deadline = std::chrono::steady_clock::now() + 180s;
+	while (!fsm.finished() && std::chrono::steady_clock::now() < deadline) {
+		fsm.tick();
+		packet inbound;
+		if (!game.recv_server(inbound)) {
+			if (fsm.finished())
+				break;
+			fsm.tick();
+			continue;
+		}
+		log_line(std::string("[practice_bot][") + tag + "] sv " + tipo_hex(inbound.getTipo())
+			+ " fsm=" + fsm.stateName());
+		fsm.onServerPacket(inbound.getTipo(), inbound);
+	}
+
+	const bool ok = fsm.success() && fsm.holesCompleted() >= 3;
+	log_line(std::string("[practice_bot][") + tag + "] result=" + (ok ? "PASS" : "FAIL")
+		+ " fsm=" + fsm.stateName()
+		+ " holes=" + std::to_string(fsm.holesCompleted())
+		+ (fsm.lastError().empty() ? "" : " err=" + fsm.lastError()));
+	return ok;
+}
+
+int run_real_versus(const std::string& host, uint16_t login_port,
+		const LoginCtx& host_in, const LoginCtx& guest_in) {
+	VersusShared shared;
+	std::atomic<bool> host_ok{false};
+	std::atomic<bool> guest_ok{false};
+	std::atomic<int> host_rc{1};
+	std::atomic<int> guest_rc{1};
+
+	std::thread host_th([&]() {
+		try {
+			LoginCtx ctx = host_in;
+			PracticeTcp login;
+			if (!login.connect_to(host, login_port) || !do_login(login, ctx)) {
+				log_line("[practice_bot][host] login failed");
+				return;
+			}
+			if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
+				ctx.game_ip = host;
+			PracticeTcp game;
+			if (!game.connect_to(ctx.game_ip, ctx.game_port) || !enter_game(game, ctx, true)) {
+				log_line("[practice_bot][host] game enter failed");
+				return;
+			}
+			host_ok = play_versus_one(game, VersusFsm::Role::Host, shared, "host");
+			host_rc = host_ok ? 0 : 1;
+			game.close();
+		} catch (exception& e) {
+			log_line("[practice_bot][host] exception: " + e.getFullMessageError());
+		}
+	});
+
+	std::thread guest_th([&]() {
+		try {
+			std::this_thread::sleep_for(400ms);
+			LoginCtx ctx = guest_in;
+			PracticeTcp login;
+			if (!login.connect_to(host, login_port) || !do_login(login, ctx)) {
+				log_line("[practice_bot][guest] login failed");
+				return;
+			}
+			if (ctx.game_ip.empty() || ctx.game_ip[0] == 0)
+				ctx.game_ip = host;
+			PracticeTcp game;
+			if (!game.connect_to(ctx.game_ip, ctx.game_port) || !enter_game(game, ctx, true)) {
+				log_line("[practice_bot][guest] game enter failed");
+				return;
+			}
+			guest_ok = play_versus_one(game, VersusFsm::Role::Guest, shared, "guest");
+			guest_rc = guest_ok ? 0 : 1;
+			game.close();
+		} catch (exception& e) {
+			log_line("[practice_bot][guest] exception: " + e.getFullMessageError());
+		}
+	});
+
+	host_th.join();
+	guest_th.join();
+
+	const bool ok = host_ok && guest_ok;
+	log_line(std::string("[practice_bot] VS two-bot result=") + (ok ? "PASS" : "FAIL")
+		+ " host=" + (host_ok ? "PASS" : "FAIL")
+		+ " guest=" + (guest_ok ? "PASS" : "FAIL"));
+	return ok ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -260,12 +362,16 @@ int main(int argc, char** argv) {
 	});
 
 	bool real = false;
+	bool versus = false;
 	std::string host = "127.0.0.1";
 	uint16_t login_port = 11030;
 	uint16_t game_port = 12030;
 	LoginCtx ctx;
 	ctx.user = "nat0";
 	ctx.pass = "123456";
+	LoginCtx guest_ctx;
+	guest_ctx.user = "ciao";
+	guest_ctx.pass = "123456";
 
 	for (int i = 1; i < argc; ++i) {
 		const std::string a = argv[i];
@@ -275,16 +381,29 @@ int main(int argc, char** argv) {
 			game_port = 20203;
 			ctx.user = "test";
 			ctx.pass = "123456";
+		} else if (a == "--vs") {
+			versus = true;
 		} else if (a == "--user" && i + 1 < argc) {
 			ctx.user = argv[++i];
 		} else if (a == "--pass" && i + 1 < argc) {
 			ctx.pass = argv[++i];
+		} else if (a == "--guest-user" && i + 1 < argc) {
+			guest_ctx.user = argv[++i];
+		} else if (a == "--guest-pass" && i + 1 < argc) {
+			guest_ctx.pass = argv[++i];
 		} else if (a.rfind("--", 0) != 0) {
 			if (login_port == 11030 || (real && login_port == 10303 && i == 1))
 				login_port = static_cast<uint16_t>(std::stoi(a));
 			else
 				game_port = static_cast<uint16_t>(std::stoi(a));
 		}
+	}
+
+	if (real && versus) {
+		log_line("[practice_bot] REAL VS 3-hole host=" + ctx.user
+			+ " guest=" + guest_ctx.user
+			+ " login=" + host + ":" + std::to_string(login_port));
+		return run_real_versus(host, login_port, ctx, guest_ctx);
 	}
 
 	if (real) {

@@ -12,6 +12,7 @@ BUILD_FOLDER := output-mc-debug
 CFILES := \
 	practice_bot.cpp \
 	../Multi|Client/PRACTICE/practice_fsm.cpp \
+	../Multi|Client/PRACTICE/versus_fsm.cpp \
 	../Multi|Client/PRACTICE/practice_loopback.cpp \
 	../Projeto|IOCP/UTIL/exception.cpp \
 	../Projeto|IOCP/UTIL/message_pool.cpp \
