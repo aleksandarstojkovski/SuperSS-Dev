@@ -1,0 +1,3 @@
+This directory is the enable_gameguard snapshot of pangbox/rugburn.
+RUGBURN_ENABLE_GAMEGUARD=1: GameGuard.des is not blocked; JP 983 GG patches are not applied.
+Source commit: aa79fce443897f694f443bcffe391cf34775ab2c
