@@ -1,12 +1,15 @@
--- Idempotent Tourney bot accounts: test1..test4 / password 123456 (MD5 below).
--- Nickname equals login id so the IOCP bot can match oid from 0x48.
+-- Official create only (Login Server CmdCreateUser):
+--   pangya.ProcNewUser(id, plaintext_password, ip, server_uid)
+-- FIRST_LOGIN / FIRST_SET stay 0. The IOCP bot does the official
+-- first-login setup (client 0x07/0x06 nick, then 0x08 character).
+--
+-- Bots: test1..test4 / password 123456
 SET NOCOUNT ON;
 
-DECLARE @pass VARCHAR(32) = N'e10adc3949ba59abbe56e057f20f883e'; -- MD5(123456)
 DECLARE @id VARCHAR(22);
 DECLARE @uid INT;
-DECLARE @charId INT;
 DECLARE @i INT = 1;
+DECLARE @pass_plain VARCHAR(32) = N'123456';
 
 WHILE @i <= 4
 BEGIN
@@ -16,45 +19,29 @@ BEGIN
 
 	IF @uid IS NULL
 	BEGIN
-		EXEC pangya.ProcNewUserWithMD5 @id, @pass, 0, N'127.0.0.1', 0;
+		EXEC pangya.ProcNewUser @id, @pass_plain, N'127.0.0.1', 0;
 		SELECT @uid = UID FROM pangya.account WHERE ID = @id;
 	END
 
-	UPDATE pangya.account
-		SET PASSWORD = @pass,
-			NICK = @id,
-			FIRST_LOGIN = 1,
-			FIRST_SET = 1,
-			Logon = 0
-		WHERE UID = @uid;
-
-	IF NOT EXISTS (SELECT 1 FROM pangya.pangya_character_information WHERE UID = @uid)
+	IF @uid IS NULL
 	BEGIN
-		EXEC pangya.ProcAddCharacter @uid, -1, 67108875, 0, 0, 1, 0,
-			137102336, 137110528, 137118720, 137126912, 137135104, 137143296, 137151488, 137159680,
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0;
+		RAISERROR(N'ProcNewUser did not create %s', 16, 1, @id);
+		RETURN;
 	END
 
-	IF NOT EXISTS (
-		SELECT 1 FROM pangya.pangya_item_warehouse
-		WHERE UID = @uid AND typeid = 268435456
-	)
-		EXEC pangya.ProcFirstSet @uid;
+	UPDATE pangya.account
+		SET PASSWORD = CONVERT(varchar(32), HASHBYTES(N'md5', @pass_plain), 2),
+			Logon = 0,
+			IDState = 0
+		WHERE UID = @uid;
 
-	SELECT TOP 1 @charId = item_id
-		FROM pangya.pangya_character_information
-		WHERE UID = @uid
-		ORDER BY item_id;
-
-	IF @charId IS NOT NULL
-		UPDATE pangya.pangya_user_equip
-			SET character_id = @charId
-			WHERE UID = @uid AND (character_id IS NULL OR character_id = 0);
+	IF NOT EXISTS (SELECT 1 FROM pangya.pangya_player_ip WHERE [uid] = @uid)
+		INSERT INTO pangya.pangya_player_ip([uid], [ip]) VALUES (@uid, N'127.0.0.1');
 
 	SET @i = @i + 1;
 END
 
-SELECT UID, ID, NICK, FIRST_SET, FIRST_LOGIN
+SELECT UID, ID, NICK, FIRST_SET, FIRST_LOGIN, Logon
 	FROM pangya.account
 	WHERE ID IN (N'test1', N'test2', N'test3', N'test4')
 	ORDER BY ID;

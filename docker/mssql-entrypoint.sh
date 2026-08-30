@@ -51,7 +51,7 @@ set_bot_passwords() {
 	echo "[mssql] bot accounts test,ciao password = MD5(123456)"
 	if [[ -f /opt/pangya/ensure_tourney_bots.sql ]]; then
 		sql -i /opt/pangya/ensure_tourney_bots.sql
-		echo "[mssql] tourney bots test1..test4 password = MD5(123456)"
+		echo "[mssql] tourney bots test1..test4 via ProcNewUser password=123456"
 	fi
 }
 

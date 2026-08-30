@@ -95,16 +95,70 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 	if (!login.send_client(req))
 		return false;
 
+	// Official first-login nick cannot equal the account ID and must be >= 4 chars.
+	std::string setup_nick = ctx.nickname;
+	if (setup_nick.empty() || setup_nick == ctx.user)
+		setup_nick = ctx.user + "n";
+	if (setup_nick.size() < 4)
+		setup_nick = ctx.user + "bot";
+
 	bool have_list = false;
-	for (int i = 0; i < 16 && !have_list; ++i) {
+	bool nick_saved = false;
+	bool char_sent = false;
+	for (int i = 0; i < 32 && !have_list; ++i) {
 		packet reply;
 		if (!login.recv_server(reply))
 			break;
 		log_line("[practice_bot] login " + tipo_hex(reply.getTipo()));
-		if (reply.getTipo() == 0x01) {
+		if (reply.getTipo() == 0x0F) {
+			continue;
+		} else if (reply.getTipo() == 0x0E) {
+			const int nick_opt = reply.readInt32();
+			if (nick_opt != 0) {
+				log_line("[practice_bot] nick check failed opt=" + std::to_string(nick_opt));
+				return false;
+			}
+			if (!nick_saved) {
+				nick_saved = true;
+				ctx.nickname = setup_nick;
+				packet save;
+				save.init_plain(0x06);
+				save.addString(setup_nick);
+				if (!login.send_client(save))
+					return false;
+				log_line("[practice_bot] first-login save nick=" + setup_nick);
+			}
+		} else if (reply.getTipo() == 0x11) {
+			log_line("[practice_bot] first-set character ack");
+		} else if (reply.getTipo() == 0x01) {
 			const int err = static_cast<unsigned char>(reply.readInt8());
 			if (err == 4) {
 				log_line("[practice_bot] already logged in; continue for SAME_ID_LOGIN");
+				continue;
+			}
+			if (err == 0xD8) {
+				// FIRST_LOGIN: check nick (0x07) then save (0x06 after 0x0E).
+				packet chk;
+				chk.init_plain(0x07);
+				chk.addString(setup_nick);
+				if (!login.send_client(chk))
+					return false;
+				log_line("[practice_bot] first-login check nick=" + setup_nick);
+				continue;
+			}
+			if (err == 0xD9) {
+				// FIRST_SET: official character pick (Nuri 0x4000000B, hair 0).
+				if (!char_sent) {
+					char_sent = true;
+					packet ch;
+					ch.init_plain(0x08);
+					ch.addInt32(67108875);
+					ch.addUint8(0);
+					ch.addUint8(0);
+					if (!login.send_client(ch))
+						return false;
+					log_line("[practice_bot] first-set character typeid=67108875");
+				}
 				continue;
 			}
 			if (err != 0) {
@@ -131,7 +185,7 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 				else if (ctx.user == "ciao")
 					ctx.nickname = "ciaoo";
 				else
-					ctx.nickname = ctx.user;
+					ctx.nickname = setup_nick;
 			}
 			log_line("[practice_bot] logged uid=" + std::to_string(ctx.uid)
 				+ " nick=" + ctx.nickname);
