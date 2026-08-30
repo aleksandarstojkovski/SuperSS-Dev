@@ -63,6 +63,9 @@ restore_pangya() {
 		MOVE N'pangya_log' TO N'${DATA_DIR}/pangya_log.ldf',
 		REPLACE, STATS = 10"
 	echo "[mssql] restore finished"
+	# Fresh dump uses the original test hash; map it to MD5(123456) for the default bot/login.
+	sql -Q "UPDATE pangya.pangya.account SET PASSWORD = N'e10adc3949ba59abbe56e057f20f883e' WHERE ID = N'test'"
+	echo "[mssql] set account test password to MD5(123456)"
 }
 
 /opt/mssql/bin/sqlservr &
