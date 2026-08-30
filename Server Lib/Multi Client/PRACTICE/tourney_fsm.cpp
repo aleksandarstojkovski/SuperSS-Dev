@@ -278,21 +278,33 @@ void TourneyFsm::onServerPacket(unsigned short tipo, packet& p) {
 			if (m_state == State::PlayingHole)
 				playCurrentHole();
 			break;
-		case 0x6D:
+		case 0x6D: {
+			// 0x6D is game_broadcast: oid + hole + ... + option.
+			// Only our own hole-out advances this client.
+			uint32_t oid = 0;
+			if (p.getSize() >= 4)
+				oid = static_cast<uint32_t>(p.readInt32());
+			if (m_oid_resolved && oid != m_oid)
+				break;
+			if (m_state != State::PlayingHole && m_state != State::WaitingHoleResult)
+				break;
 			if (!m_hole_data_sent) {
 				m_hole_data_sent = true;
 				sendFinishHoleData(m_send, m_user_info_size);
 			}
-			m_holes_done++;
+			if (m_holes_done < m_holes)
+				m_holes_done++;
 			_smp::message_pool::getInstance().push(new message(
 				std::string("[TourneyFsm][") + roleName() + "] Hole done "
-					+ std::to_string(m_holes_done) + "/" + std::to_string(m_holes),
+					+ std::to_string(m_holes_done) + "/" + std::to_string(m_holes)
+					+ " oid=" + std::to_string(oid),
 				CL_FILE_LOG_AND_CONSOLE));
 			if (m_holes_done >= m_holes)
 				m_state = State::Finishing;
 			else
 				beginHole(static_cast<uint8_t>(m_holes_done + 1));
 			break;
+		}
 		case 0x199:
 			m_state = State::Finishing;
 			break;
