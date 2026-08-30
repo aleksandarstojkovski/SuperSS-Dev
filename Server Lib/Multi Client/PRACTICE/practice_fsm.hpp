@@ -61,6 +61,7 @@ namespace stdA {
 			std::vector<uint8_t> m_hole_numbers;
 			std::string m_error;
 			bool m_shot_sent;
+			bool m_item_sent;
 	};
 }
 

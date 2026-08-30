@@ -9,7 +9,7 @@ namespace stdA {
 PracticeFsm::PracticeFsm(uint8_t holes, uint8_t course)
 	: m_state(State::Idle), m_holes(holes == 0 ? 3 : holes), m_course(course),
 	  m_holes_done(0), m_current_hole(0), m_oid(1), m_user_info_size(256),
-	  m_error(), m_shot_sent(false) {
+	  m_error(), m_shot_sent(false), m_item_sent(false) {
 	std::memset(m_room_key, 0x11, sizeof(m_room_key));
 }
 
@@ -137,7 +137,6 @@ void PracticeFsm::onServerPacket(unsigned short tipo, packet& p) {
 			_smp::message_pool::getInstance().push(new message(
 				"[PracticeFsm] Room created, starting Practice", CL_FILE_LOG_AND_CONSOLE));
 			sendStartGame(m_send);
-			sendChangeItemRoom(m_send);
 			break;
 		}
 		case 0x230:
@@ -145,6 +144,13 @@ void PracticeFsm::onServerPacket(unsigned short tipo, packet& p) {
 		case 0x77:
 			if (m_state == State::Starting)
 				m_state = State::WaitingCourse;
+			if (!m_item_sent && m_send) {
+				m_item_sent = true;
+				_smp::message_pool::getInstance().push(new message(
+					"[PracticeFsm] Start acked, sending 0x0C TC_ALL",
+					CL_FILE_LOG_AND_CONSOLE));
+				sendChangeItemRoom(m_send);
+			}
 			break;
 		case 0x76:
 			m_state = State::WaitingCourse;
