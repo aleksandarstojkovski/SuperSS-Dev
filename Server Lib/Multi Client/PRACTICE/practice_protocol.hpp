@@ -147,24 +147,7 @@ namespace stdA {
 		send(p);
 	}
 
-	inline void sendHoleOutShot(const PracticeSendFn& send, uint32_t oid, const unsigned char room_key[16]) {
-		PracticeShotData sd{};
-		sd.club = 13;	// putter-ish
-		sd.bar_point[0] = 1.f;
-		sd.bar_point[1] = 0.f;
-
-		packet init_shot;
-		init_shot.init_plain((unsigned short)0x12);
-		init_shot.addUint16(0);	// no power shot
-		init_shot.addBuffer(&sd, sizeof(sd));
-		send(init_shot);
-
-		packet arrows;
-		arrows.init_plain((unsigned short)0x42);
-		arrows.addUint8(1);
-		arrows.addUint32(1);	// one arrow (up)
-		send(arrows);
-
+	inline void sendShotSync(const PracticeSendFn& send, uint32_t oid, const unsigned char room_key[16]) {
 		PracticeShotSyncData ssd{};
 		ssd.oid = oid;
 		ssd.x = 10.f;
@@ -184,6 +167,27 @@ namespace stdA {
 		finish.addUint8(0);	// no cube/coin
 		finish.addUint8(0);
 		send(finish);
+	}
+
+	inline void sendHoleOutShot(const PracticeSendFn& send, uint32_t oid, const unsigned char room_key[16]) {
+		PracticeShotData sd{};
+		sd.club = 13;	// putter-ish
+		sd.bar_point[0] = 1.f;
+		sd.bar_point[1] = 0.f;
+
+		packet init_shot;
+		init_shot.init_plain((unsigned short)0x12);
+		init_shot.addUint16(0);	// no power shot
+		init_shot.addBuffer(&sd, sizeof(sd));
+		send(init_shot);
+
+		packet arrows;
+		arrows.init_plain((unsigned short)0x42);
+		arrows.addUint8(1);
+		arrows.addUint32(1);	// one arrow (up)
+		send(arrows);
+
+		sendShotSync(send, oid, room_key);
 	}
 
 	inline void sendFinishHoleData(const PracticeSendFn& send, size_t user_info_size) {

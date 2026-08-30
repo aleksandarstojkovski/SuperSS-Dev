@@ -10,6 +10,7 @@ VersusFsm::VersusFsm(Role role, VersusShared& shared, uint8_t holes, uint8_t cou
 	: m_shared(shared), m_role(role), m_state(State::Idle),
 	  m_holes(holes == 0 ? 3 : holes), m_course(course),
 	  m_holes_done(0), m_current_hole(0), m_oid(0), m_uid(0),
+	  m_last_shooter(0),
 	  m_user_info_size(USER_INFO_SIZE),
 	  m_error(), m_item_sent(false), m_finish_sent(false),
 	  m_join_sent(false), m_ready_sent(false), m_shot_this_turn(false),
@@ -267,6 +268,18 @@ void VersusFsm::onServerPacket(unsigned short tipo, packet& p) {
 			break;
 		case 0x52:
 			beginHole(1);
+			break;
+		case 0x55: {
+			// Official VS waits for every player to echo 0x1B/0x1C.
+			// Missing that sync gets the spectator disconnected (0x8A).
+			if (p.getSize() >= 4) {
+				m_last_shooter = static_cast<uint32_t>(p.readInt32());
+				sendShotSync(m_send, m_last_shooter, m_room_key);
+			}
+			break;
+		}
+		case 0x8A:
+			sendShotSync(m_send, m_last_shooter, m_room_key);
 			break;
 		case 0x53:
 		case 0x63: {

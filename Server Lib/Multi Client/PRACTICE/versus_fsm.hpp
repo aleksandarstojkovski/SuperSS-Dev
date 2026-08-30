@@ -79,6 +79,7 @@ namespace stdA {
 			uint8_t m_current_hole;
 			uint32_t m_oid;
 			uint32_t m_uid;
+			uint32_t m_last_shooter;
 			size_t m_user_info_size;
 			unsigned char m_room_key[16];
 			std::string m_error;
