@@ -233,6 +233,8 @@ UpgradeLog*.htm
 # SQL Server files
 *.mdf
 *.ldf
+*.bak
+docker/data/*.bak
 
 # Business Intelligence projects
 *.rdl.data

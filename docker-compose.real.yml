@@ -1,11 +1,41 @@
-# Real SuperSS stack: existing pangya-mssql on host :1433 + ODBC-enabled servers.
+# Real SuperSS stack: MSSQL restores docker/data/pangya.bak, then Auth/Login/Game.
+# Place the dump at docker/data/pangya.bak (not committed) or set PANGYA_BAK_URL.
 services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Pangya!Test123
+      MSSQL_PID: Express
+      PANGYA_BAK: /var/opt/mssql/backup/pangya.bak
+      PANGYA_BAK_URL: ${PANGYA_BAK_URL:-}
+    entrypoint: ["/bin/bash", "/usr/local/bin/mssql-entrypoint.sh"]
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./docker/data:/var/opt/mssql/backup
+      - ./docker/mssql-entrypoint.sh:/usr/local/bin/mssql-entrypoint.sh:ro
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q \"IF DB_ID('pangya') IS NULL RAISERROR('pangya not restored',16,1)\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 25s
+
   auth:
     image: superss-odbc:latest
     working_dir: /opt/superss/Linux Builds/Auth Server
     command: ["./auth"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      mssql:
+        condition: service_healthy
     volumes:
       - ./docker/server-auth.ini:/opt/superss/Linux Builds/Auth Server/server.ini:ro
       - ./docker/socket_config.ini:/opt/superss/Linux Builds/Auth Server/config/socket_config.ini:ro
@@ -20,7 +50,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - auth
+      mssql:
+        condition: service_healthy
+      auth:
+        condition: service_started
     volumes:
       - ./docker/server-login.ini:/opt/superss/Linux Builds/Login Server/server.ini:ro
       - ./docker/socket_config.ini:/opt/superss/Linux Builds/Login Server/config/socket_config.ini:ro
@@ -36,7 +69,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - auth
+      mssql:
+        condition: service_healthy
+      auth:
+        condition: service_started
     volumes:
       - ./docker/server-message.ini:/opt/superss/Linux Builds/Message Server/server.ini:ro
       - ./docker/socket_config.ini:/opt/superss/Linux Builds/Message Server/config/socket_config.ini:ro
@@ -50,6 +86,9 @@ services:
     command: ["./rank"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      mssql:
+        condition: service_healthy
     volumes:
       - ./docker/server-rank.ini:/opt/superss/Linux Builds/Rank Server/server.ini:ro
       - ./docker/socket_config.ini:/opt/superss/Linux Builds/Rank Server/config/socket_config.ini:ro
@@ -64,8 +103,12 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - auth
-      - login
+      mssql:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      login:
+        condition: service_started
     volumes:
       - ./docker/server-game.ini:/opt/superss/Linux Builds/Game Server/server.ini:ro
       - ./docker/socket_config.ini:/opt/superss/Linux Builds/Game Server/config/socket_config.ini:ro
@@ -73,3 +116,6 @@ services:
       - ./Server Lib/Linux Builds/Game Server/data/pangya_jp.iff:/opt/superss/Linux Builds/Game Server/data/pangya_jp.iff:ro
     ports:
       - "20203:20203"
+
+volumes:
+  mssql-data:
