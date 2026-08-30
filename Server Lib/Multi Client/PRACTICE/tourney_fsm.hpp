@@ -16,7 +16,9 @@ namespace stdA {
 
 	struct TourneyShared {
 		std::atomic<int16_t> room_number{-1};
-		std::atomic<bool> guest_ready{false};
+		std::atomic<int> guests_ready{0};
+		std::atomic<int> ready_pkts{0};
+		int expected_guests = 3;
 		std::string password{"tourney"};
 		std::string name{"tourney-bot"};
 	};

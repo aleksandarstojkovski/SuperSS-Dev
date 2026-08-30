@@ -49,6 +49,10 @@ restore_pangya() {
 set_bot_passwords() {
 	sql -Q "UPDATE pangya.pangya.account SET PASSWORD = N'e10adc3949ba59abbe56e057f20f883e' WHERE ID IN (N'test', N'ciao')"
 	echo "[mssql] bot accounts test,ciao password = MD5(123456)"
+	if [[ -f /opt/pangya/ensure_tourney_bots.sql ]]; then
+		sql -i /opt/pangya/ensure_tourney_bots.sql
+		echo "[mssql] tourney bots test1..test4 password = MD5(123456)"
+	fi
 }
 
 /opt/mssql/bin/sqlservr &

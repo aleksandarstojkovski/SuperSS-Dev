@@ -5,6 +5,7 @@
 ;   ./Multi Client/practice_bot --real --config bot.ini
 ;   ./Multi Client/practice_bot --real --vs --config bot.ini
 ;   ./Multi Client/practice_bot --real --tourney --config bot.ini
+; Tourney always uses hardcoded test1..test4 / 123456 (created by docker/ensure_tourney_bots.sql).
 ;
 ; Write a fresh copy:
 ;   ./Multi Client/practice_bot --write-template bot.ini

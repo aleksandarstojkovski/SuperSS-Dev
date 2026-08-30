@@ -33,6 +33,7 @@ services:
       PANGYA_BAK: /opt/pangya/pangya.bak
     volumes:
       - mssql-data:/var/opt/mssql
+      - ./docker/ensure_tourney_bots.sql:/opt/pangya/ensure_tourney_bots.sql:ro
     ports:
       - "1433:1433"
     healthcheck:

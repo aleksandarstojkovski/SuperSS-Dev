@@ -90,7 +90,9 @@ void TourneyFsm::onLobbyEntered() {
 void TourneyFsm::maybeStartAsHost() {
 	if (m_role != Role::Host || m_state != State::WaitingGuest)
 		return;
-	if (!m_shared.guest_ready.load() || !m_saw_guest_ready_pkt)
+	if (m_shared.guests_ready.load() < m_shared.expected_guests)
+		return;
+	if (m_shared.ready_pkts.load() < 1 && !m_saw_guest_ready_pkt)
 		return;
 	m_state = State::Starting;
 	_smp::message_pool::getInstance().push(new message(
@@ -242,7 +244,7 @@ void TourneyFsm::onServerPacket(unsigned short tipo, packet& p) {
 				if (!m_ready_sent) {
 					m_ready_sent = true;
 					sendReady(m_send);
-					m_shared.guest_ready.store(true);
+					m_shared.guests_ready.fetch_add(1);
 				}
 				m_state = State::WaitingStart;
 				_smp::message_pool::getInstance().push(new message(
@@ -315,8 +317,10 @@ void TourneyFsm::onServerPacket(unsigned short tipo, packet& p) {
 			}
 			break;
 		case 0x78:
-			if (m_role == Role::Host && m_state == State::WaitingGuest)
+			if (m_role == Role::Host) {
 				m_saw_guest_ready_pkt = true;
+				m_shared.ready_pkts.fetch_add(1);
+			}
 			break;
 		case 0x253: {
 			uint32_t err = 0;

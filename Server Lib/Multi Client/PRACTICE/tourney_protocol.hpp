@@ -16,7 +16,7 @@ namespace stdA {
 		p.addUint8(0);				// option
 		p.addUint32(0);				// time_vs (unused in Tourney)
 		p.addUint32(40 * 60000);	// time_30s
-		p.addUint8(2);				// max_player (Tourney cannot start with 1 real player)
+		p.addUint8(4);				// max_player (4 official IOCP bots)
 		p.addUint8(ROOM_TIPO_TOURNEY);
 		p.addUint8(holes);
 		p.addUint8(course);
