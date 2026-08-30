@@ -150,52 +150,68 @@ static constexpr size_t kPlayerRoomUidOff = 108;
 static constexpr size_t kPlayerRoomNickOff = 4;
 static constexpr size_t kPlayerRoomNickLen = 22;
 
+static bool paddedNameAt(const unsigned char* buf, size_t n, size_t off,
+		const std::string& name) {
+	if (name.empty() || off + kPlayerRoomNickLen > n)
+		return false;
+	if (std::memcmp(buf + off, name.c_str(), name.size()) != 0)
+		return false;
+	for (size_t k = name.size(); k < kPlayerRoomNickLen; ++k) {
+		if (buf[off + k] != 0)
+			return false;
+	}
+	return true;
+}
+
 void VersusFsm::tryParseOid(packet& p) {
 	const unsigned char* buf = p.getBuffer();
 	const size_t n = p.getSize();
-	if (buf == nullptr || n < 12)
+	if (buf == nullptr || n < 8)
 		return;
 
-	for (size_t i = 0; i + 8 < n; ++i) {
-		uint32_t oid = 0;
-		std::memcpy(&oid, buf + i, 4);
-		if (oid == 0 || oid >= 256)
-			continue;
-
-		bool nick_ok = false;
-		if (!m_self_name.empty() && i + kPlayerRoomNickOff + kPlayerRoomNickLen <= n) {
-			if (std::memcmp(buf + i + kPlayerRoomNickOff, m_self_name.c_str(),
-					m_self_name.size()) == 0) {
-				bool pad = true;
-				for (size_t k = m_self_name.size(); k < kPlayerRoomNickLen; ++k) {
-					if (buf[i + kPlayerRoomNickOff + k] != 0) {
-						pad = false;
-						break;
-					}
-				}
-				nick_ok = pad;
+	// Prefer the 22-byte nickname field: oid is the uint32 immediately before it.
+	if (!m_self_name.empty()) {
+		for (size_t i = 4; i + kPlayerRoomNickLen <= n; ++i) {
+			if (!paddedNameAt(buf, n, i, m_self_name))
+				continue;
+			uint32_t oid = 0;
+			std::memcpy(&oid, buf + i - 4, 4);
+			if (oid == 0 || oid >= 256)
+				continue;
+			if (!m_oid_resolved || m_oid != oid) {
+				setOid(oid);
+				_smp::message_pool::getInstance().push(new message(
+					std::string("[VersusFsm][") + roleName() + "] oid="
+						+ std::to_string(oid) + " via nick=" + m_self_name,
+					CL_FILE_LOG_AND_CONSOLE));
 			}
+			return;
 		}
+	}
 
-		bool uid_ok = false;
-		if (m_uid != 0 && i + kPlayerRoomUidOff + 4 <= n) {
+	// Fallback: uid at PlayerRoomInfo +108, only if nickname at +4 is printable.
+	if (m_uid != 0) {
+		for (size_t i = 0; i + kPlayerRoomUidOff + 4 <= n; ++i) {
 			uint32_t uid = 0;
 			std::memcpy(&uid, buf + i + kPlayerRoomUidOff, 4);
-			uid_ok = (uid == m_uid);
+			if (uid != m_uid)
+				continue;
+			uint32_t oid = 0;
+			std::memcpy(&oid, buf + i, 4);
+			if (oid == 0 || oid >= 256)
+				continue;
+			const unsigned char nick0 = buf[i + kPlayerRoomNickOff];
+			if (nick0 < 32 || nick0 > 126)
+				continue;
+			if (!m_oid_resolved || m_oid != oid) {
+				setOid(oid);
+				_smp::message_pool::getInstance().push(new message(
+					std::string("[VersusFsm][") + roleName() + "] oid="
+						+ std::to_string(oid) + " via uid=" + std::to_string(m_uid),
+					CL_FILE_LOG_AND_CONSOLE));
+			}
+			return;
 		}
-
-		if (!nick_ok && !uid_ok)
-			continue;
-
-		if (!m_oid_resolved || m_oid != oid) {
-			setOid(oid);
-			_smp::message_pool::getInstance().push(new message(
-				std::string("[VersusFsm][") + roleName() + "] oid="
-					+ std::to_string(oid) + " uid=" + std::to_string(m_uid)
-					+ " nick=" + m_self_name,
-				CL_FILE_LOG_AND_CONSOLE));
-		}
-		return;
 	}
 }
 
@@ -263,9 +279,7 @@ void VersusFsm::onServerPacket(unsigned short tipo, packet& p) {
 						+ " turn_oid=" + std::to_string(turn_oid)
 						+ " my_oid=" + std::to_string(m_oid),
 					CL_FILE_LOG_AND_CONSOLE));
-				if (m_oid == 0)
-					fail("turn arrived before own oid was resolved from 0x48");
-				else
+				if (m_oid != 0)
 					shootIfMyTurn(turn_oid);
 			}
 			break;

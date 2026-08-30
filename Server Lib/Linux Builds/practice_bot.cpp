@@ -2,6 +2,7 @@
 #include "../Projeto IOCP/TYPE/pangya_st.h"
 #include "../Projeto IOCP/UTIL/exception.h"
 #include "../Projeto IOCP/UTIL/message_pool.h"
+#include "../Projeto IOCP/UTIL/hex_util.h"
 #include "../Multi Client/PRACTICE/practice_fsm.hpp"
 #include "../Multi Client/PRACTICE/versus_fsm.hpp"
 #include "../Multi Client/PRACTICE/practice_loopback.hpp"
@@ -114,16 +115,21 @@ bool do_login(PracticeTcp& login, LoginCtx& ctx) {
 				reply.readInt16();	// level
 				reply.readInt32();
 				reply.readInt32();
-				for (int i = 0; i < 19; ++i)
-					(void)reply.readUint8();	// build date
+				(void)reply.readString();	// addFixedString build date (len-prefixed)
 				(void)reply.readString();	// auth token
 				reply.readUint32();
 				reply.readUint32();
 				ctx.nickname = reply.readString();
 			} catch (...) {
 			}
-			if (ctx.nickname.empty())
-				ctx.nickname = ctx.user;
+			if (ctx.nickname.empty()) {
+				if (ctx.user == "test")
+					ctx.nickname = "test123";
+				else if (ctx.user == "ciao")
+					ctx.nickname = "ciaoo";
+				else
+					ctx.nickname = ctx.user;
+			}
 			log_line("[practice_bot] logged uid=" + std::to_string(ctx.uid)
 				+ " nick=" + ctx.nickname);
 		} else if (reply.getTipo() == 0x02) {
@@ -285,13 +291,20 @@ bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shar
 			fsm.tick();
 			continue;
 		}
+		if (inbound.getTipo() == 0x48) {
+			const size_t n = inbound.getSize();
+			log_line(std::string("[practice_bot][") + tag + "] 0x48 bytes="
+				+ std::to_string(n) + " nick=" + user
+				+ " " + hex_util::BufferToHexString(inbound.getBuffer(),
+					n > 96 ? 96 : n));
+		}
 		log_line(std::string("[practice_bot][") + tag + "] sv " + tipo_hex(inbound.getTipo())
 			+ " fsm=" + fsm.stateName()
 			+ " oid=" + std::to_string(fsm.oid()));
 		fsm.onServerPacket(inbound.getTipo(), inbound);
 		if (inbound.getTipo() == 0x48 && fsm.oidResolved())
 			log_line(std::string("[practice_bot][") + tag + "] resolved oid="
-				+ std::to_string(fsm.oid()) + " user=" + user
+				+ std::to_string(fsm.oid()) + " nick=" + user
 				+ " uid=" + std::to_string(uid));
 	}
 
