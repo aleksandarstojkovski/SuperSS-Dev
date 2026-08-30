@@ -298,9 +298,19 @@ bool play_versus_one(PracticeTcp& game, VersusFsm::Role role, VersusShared& shar
 				+ " " + hex_util::BufferToHexString(inbound.getBuffer(),
 					n > 96 ? 96 : n));
 		}
+		if (inbound.getTipo() == 0x53 || inbound.getTipo() == 0x63) {
+			uint32_t turn_oid = 0;
+			if (inbound.getSize() >= 6)
+				std::memcpy(&turn_oid, inbound.getBuffer() + 2, 4);
+			log_line(std::string("[practice_bot][") + tag + "] turn "
+				+ tipo_hex(inbound.getTipo()) + " turn_oid=" + std::to_string(turn_oid)
+				+ " my_oid=" + std::to_string(fsm.oid())
+				+ " resolved=" + (fsm.oidResolved() ? "1" : "0"));
+		}
 		log_line(std::string("[practice_bot][") + tag + "] sv " + tipo_hex(inbound.getTipo())
 			+ " fsm=" + fsm.stateName()
-			+ " oid=" + std::to_string(fsm.oid()));
+			+ " oid=" + std::to_string(fsm.oid())
+			+ (fsm.oidResolved() ? "" : " (unresolved)"));
 		fsm.onServerPacket(inbound.getTipo(), inbound);
 		if (inbound.getTipo() == 0x48 && fsm.oidResolved())
 			log_line(std::string("[practice_bot][") + tag + "] resolved oid="

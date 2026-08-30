@@ -133,7 +133,7 @@ void VersusFsm::beginHole(uint8_t hole_number) {
 }
 
 void VersusFsm::shootIfMyTurn(uint32_t turn_oid) {
-	if (m_oid == 0 || turn_oid != m_oid || m_shot_this_turn)
+	if (!m_oid_resolved || turn_oid != m_oid || m_shot_this_turn)
 		return;
 	m_shot_this_turn = true;
 	m_state = State::WaitingHoleResult;
@@ -176,7 +176,7 @@ void VersusFsm::tryParseOid(packet& p) {
 				continue;
 			uint32_t oid = 0;
 			std::memcpy(&oid, buf + i - 4, 4);
-			if (oid == 0 || oid >= 256)
+			if (oid >= 256)
 				continue;
 			if (!m_oid_resolved || m_oid != oid) {
 				setOid(oid);
@@ -198,7 +198,7 @@ void VersusFsm::tryParseOid(packet& p) {
 				continue;
 			uint32_t oid = 0;
 			std::memcpy(&oid, buf + i, 4);
-			if (oid == 0 || oid >= 256)
+			if (oid >= 256)
 				continue;
 			const unsigned char nick0 = buf[i + kPlayerRoomNickOff];
 			if (nick0 < 32 || nick0 > 126)
@@ -279,7 +279,7 @@ void VersusFsm::onServerPacket(unsigned short tipo, packet& p) {
 						+ " turn_oid=" + std::to_string(turn_oid)
 						+ " my_oid=" + std::to_string(m_oid),
 					CL_FILE_LOG_AND_CONSOLE));
-				if (m_oid != 0)
+				if (m_oid_resolved)
 					shootIfMyTurn(turn_oid);
 			}
 			break;
