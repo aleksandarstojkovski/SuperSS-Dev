@@ -60,6 +60,7 @@
 
     function decryptStringResource($_ciphered) {
 
+        $_ciphered = trim($_ciphered);
         $data = hexstrBinASCII($_ciphered);
 
         if (isset($data) && count($data) < 4) {
@@ -120,8 +121,9 @@
 
         }
 
-        $data[$tmp2] = 0;
-        
-        return implode('', array_map('chr', $data));
+        // Plaintext is data[0 .. tmp2). Do not append the leftover cipher
+        // bytes or a NUL: CRCHashStr() stops at NUL, but se.php explode('|')
+        // would see garbage after it.
+        return implode('', array_map('chr', array_slice($data, 0, $tmp2)));
      }
 ?>
