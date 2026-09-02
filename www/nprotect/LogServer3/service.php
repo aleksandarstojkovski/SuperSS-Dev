@@ -54,8 +54,21 @@
 
             // ----------------- End ---------------
             
-            // Constroi resposta
-            $reply = $value1.' '.$value2.' '.$value3.' '.$value4.' '.$crc_reply.' '.$my_value6.' '.$my_value7.' '.$my_value8.' '.$_GET['dm'];
+            // Build the 9-field reply. %u keeps the same decimal digits on
+            // 32-bit PHP (WAMP Win32) and 64-bit PHP; concatenating signed
+            // ints prints "-85" instead of "4294967211".
+            $reply = sprintf(
+                '%u %u %u %u %u %s %s %s %s',
+                $value1,
+                $value2,
+                $value3,
+                $value4,
+                $crc_reply,
+                $my_value6,
+                $my_value7,
+                $my_value8,
+                $_GET['dm']
+            );
 
             // Log
             sLog::getInstance()->putLog("[Service] Reply: ".$reply);

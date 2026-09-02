@@ -21,7 +21,7 @@
 
             $first = explode('|', $code);
 
-            if ($first >= 19) {
+            if (count($first) >= 19) {
                 
                 $obj = new stdClass();
 
@@ -76,7 +76,7 @@
                 // Log
                 sLog::getInstance()->putLog("[HL] Value1: ".$value1.", CRCValue: ".$crcValue.", Dummy: ".$obj->dummy.', Multi[0]: '.$multi_value1.', Multi[1]: '.$multi_value2.". Object[".json_encode($obj)."]");
 
-                echo encryptStringResource($value1." ".$crcValue, rand());
+                echo encryptStringResource(sprintf('%u %u', $value1, $crcValue), rand());
             }
         }
     }

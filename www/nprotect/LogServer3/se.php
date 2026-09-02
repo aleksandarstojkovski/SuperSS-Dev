@@ -31,6 +31,6 @@
         // Log
         sLog::getInstance()->putLog("[SE] Hash Dummy: ".$hash_do_dummy);
 
-        echo $hash_do_dummy;
+        echo sprintf('%u', $hash_do_dummy);
     }
 ?>
